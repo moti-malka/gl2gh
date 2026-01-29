@@ -1,7 +1,7 @@
 # FastAPI and server
-fastapi==0.109.1
-uvicorn[standard]==0.27.0
-python-multipart==0.0.22
+fastapi>=0.109.0
+uvicorn[standard]>=0.31.1
+python-multipart>=0.0.22
 
 # Database
 motor==3.3.2
@@ -13,16 +13,16 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 
 # Job Queue
-celery==5.3.4
-redis==5.0.1
+celery>=5.3.0
+redis>=6.4.0
 
 # HTTP client for agents
-httpx==0.26.0
+httpx>=0.27.1
 requests==2.31.0
 
 # Validation and schemas
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic>=2.5.0
+pydantic-settings>=2.5.2
 email-validator==2.1.0
 
 # Encryption
@@ -33,14 +33,15 @@ jsonschema==4.20.0
 PyYAML==6.0.1
 
 # WebSocket support
-websockets==12.0
+websockets>=15.0.1
 
 # Logging
 python-json-logger==2.0.7
 
 # Microsoft Agent Framework (pre-release)
 # Install with: pip install -r requirements.txt --pre
-agent-framework>=1.0.0b260128
+# Using core only to avoid dependency conflicts with [all] extras
+agent-framework-core>=1.0.0b260128
 azure-identity>=1.15.0
 azure-core>=1.29.0
 
@@ -48,4 +49,3 @@ azure-core>=1.29.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-mock==3.12.0
-httpx==0.26.0
