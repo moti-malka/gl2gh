@@ -206,7 +206,7 @@ async def test_get_run_plan_not_found(client):
 
 @pytest.mark.asyncio
 async def test_apply_run_without_project_id(client):
-    """Test applying a run without specifying project_id"""
+    """Test applying a run without specifying gitlab_project_id"""
     # Register and login
     register_data = {
         "username": "applytest",
@@ -240,15 +240,15 @@ async def test_apply_run_without_project_id(client):
     assert response.status_code == 201
     run_id = response.json()["id"]
     
-    # Try to apply without project_id (should fail)
+    # Try to apply without gitlab_project_id (should fail)
     response = await client.post(f"/api/runs/{run_id}/apply", json={}, headers=headers)
     assert response.status_code == 400
-    assert "project_id is required" in response.json()["detail"]
+    assert "gitlab_project_id is required" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_verify_run_without_project_id(client):
-    """Test verifying a run without specifying project_id"""
+    """Test verifying a run without specifying gitlab_project_id"""
     # Register and login
     register_data = {
         "username": "verifytest",
@@ -282,7 +282,7 @@ async def test_verify_run_without_project_id(client):
     assert response.status_code == 201
     run_id = response.json()["id"]
     
-    # Try to verify without project_id (should fail)
+    # Try to verify without gitlab_project_id (should fail)
     response = await client.post(f"/api/runs/{run_id}/verify", json={}, headers=headers)
     assert response.status_code == 400
-    assert "project_id is required" in response.json()["detail"]
+    assert "gitlab_project_id is required" in response.json()["detail"]

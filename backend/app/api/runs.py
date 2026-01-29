@@ -27,12 +27,12 @@ class ResumeRequest(BaseModel):
 
 
 class ApplyRequest(BaseModel):
-    project_id: Optional[int] = None
+    gitlab_project_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
 
 
 class VerifyRequest(BaseModel):
-    project_id: Optional[int] = None
+    gitlab_project_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
 
 
@@ -249,7 +249,7 @@ async def get_run_plan(
     if not plan_file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Plan file not found at {plan_file_path}"
+            detail="Plan file not found"
         )
     
     try:
@@ -257,32 +257,52 @@ async def get_run_plan(
         with open(plan_file_path, 'r') as f:
             plan_content = json.load(f)
         return plan_content
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to parse plan file: {str(e)}"
+            detail="Failed to parse plan file"
         )
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read plan file: {str(e)}"
+            detail="Failed to read plan file"
         )
 
 
 @router.post("/runs/{run_id}/apply")
 async def apply_run(
     run_id: str,
-    request: ApplyRequest = ApplyRequest(),
+    request: Optional[ApplyRequest] = None,
     current_user: User = Depends(require_operator)
 ):
     """Execute the migration plan (write to GitHub)"""
     run = await check_run_access(run_id, current_user)
     
-    # If project_id is not provided, we need to apply to all projects in the run
-    if request.project_id is None:
+    # Parse request or use defaults
+    if request is None:
+        request = ApplyRequest()
+    
+    # gitlab_project_id is required
+    if request.gitlab_project_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="project_id is required. Apply must be executed per project."
+            detail="gitlab_project_id is required. Apply must be executed per project."
+        )
+    
+    # Validate that the gitlab_project_id is part of this run
+    from app.db import get_database
+    from bson import ObjectId
+    
+    db = await get_database()
+    run_project = await db["run_projects"].find_one({
+        "run_id": ObjectId(run_id),
+        "gitlab_project_id": request.gitlab_project_id
+    })
+    
+    if not run_project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"GitLab project {request.gitlab_project_id} not found in this run"
         )
     
     # Prepare config
@@ -290,34 +310,54 @@ async def apply_run(
     
     # Trigger Celery task for apply
     try:
-        task = run_apply.delay(run_id, request.project_id, config)
+        task = run_apply.delay(run_id, request.gitlab_project_id, config)
         return {
             "message": "Apply started",
             "run_id": run_id,
-            "project_id": request.project_id,
+            "gitlab_project_id": request.gitlab_project_id,
             "task_id": task.id
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start apply task: {str(e)}"
+            detail="Failed to start apply task"
         )
 
 
 @router.post("/runs/{run_id}/verify")
 async def verify_run(
     run_id: str,
-    request: VerifyRequest = VerifyRequest(),
+    request: Optional[VerifyRequest] = None,
     current_user: User = Depends(require_operator)
 ):
     """Verify migration results"""
     run = await check_run_access(run_id, current_user)
     
-    # If project_id is not provided, we need to verify all projects in the run
-    if request.project_id is None:
+    # Parse request or use defaults
+    if request is None:
+        request = VerifyRequest()
+    
+    # gitlab_project_id is required
+    if request.gitlab_project_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="project_id is required. Verify must be executed per project."
+            detail="gitlab_project_id is required. Verify must be executed per project."
+        )
+    
+    # Validate that the gitlab_project_id is part of this run
+    from app.db import get_database
+    from bson import ObjectId
+    
+    db = await get_database()
+    run_project = await db["run_projects"].find_one({
+        "run_id": ObjectId(run_id),
+        "gitlab_project_id": request.gitlab_project_id
+    })
+    
+    if not run_project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"GitLab project {request.gitlab_project_id} not found in this run"
         )
     
     # Prepare config
@@ -325,15 +365,15 @@ async def verify_run(
     
     # Trigger Celery task for verify
     try:
-        task = run_verify.delay(run_id, request.project_id, config)
+        task = run_verify.delay(run_id, request.gitlab_project_id, config)
         return {
             "message": "Verification started",
             "run_id": run_id,
-            "project_id": request.project_id,
+            "gitlab_project_id": request.gitlab_project_id,
             "task_id": task.id
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start verify task: {str(e)}"
+            detail="Failed to start verify task"
         )
