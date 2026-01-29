@@ -7,21 +7,33 @@ from bson import ObjectId
 
 
 class PyObjectId(ObjectId):
-    """Custom ObjectId type for Pydantic"""
+    """Custom ObjectId type for Pydantic v2"""
     
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-    
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+        
+        def validate_object_id(value, handler):
+            if isinstance(value, ObjectId):
+                return value
+            if isinstance(value, str):
+                if ObjectId.is_valid(value):
+                    return ObjectId(value)
             raise ValueError("Invalid ObjectId")
-        return ObjectId(v)
+        
+        python_schema = core_schema.with_info_plain_validator_function(validate_object_id)
+        
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.str_schema(),
+            python_schema=python_schema,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda x: str(x)
+            ),
+        )
     
     @classmethod
-    def __get_pydantic_json_schema__(cls, field_schema):
-        field_schema.update(type="string")
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        return {"type": "string"}
 
 
 class MongoBaseModel(BaseModel):
@@ -29,13 +41,14 @@ class MongoBaseModel(BaseModel):
     
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {
             ObjectId: str,
             datetime: lambda v: v.isoformat()
         }
+    }
 
 
 # User Models
