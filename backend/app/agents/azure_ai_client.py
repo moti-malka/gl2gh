@@ -2,12 +2,22 @@
 
 import os
 from typing import Optional
-from agent_framework.azure import AzureAIClient
-from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
 from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Try to import Azure AI client, but don't fail if not available
+try:
+    from agent_framework.azure import AzureAIClient
+    from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
+    AZURE_AI_AVAILABLE = True
+except (ImportError, ModuleNotFoundError) as e:
+    logger.info(f"Azure AI not available - agents will use local implementation: {e}")
+    AzureAIClient = None
+    AzureCliCredential = None
+    DefaultAzureCredential = None
+    AZURE_AI_AVAILABLE = False
 
 
 class AgentClientFactory:
@@ -28,7 +38,7 @@ class AgentClientFactory:
         """
         Get or create Azure AI client for MAF agents.
         
-        Returns None if Azure AI is not configured.
+        Returns None if Azure AI is not configured or not available.
         Uses AzureCliCredential by default (requires: az login)
         Falls back to DefaultAzureCredential for service principals.
         
@@ -41,6 +51,9 @@ class AgentClientFactory:
             - AZURE_CLIENT_ID
             - AZURE_CLIENT_SECRET
         """
+        if not AZURE_AI_AVAILABLE:
+            return None
+        
         if not settings.AZURE_AI_PROJECT_ENDPOINT or not settings.AZURE_AI_MODEL_DEPLOYMENT_NAME:
             logger.info("Azure AI not configured, agents will run in local mode")
             return None

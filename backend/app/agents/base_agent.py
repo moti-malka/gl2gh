@@ -115,8 +115,8 @@ class BaseAgent(ABC):
         log_data = {
             "agent": self.agent_name,
             "timestamp": datetime.utcnow().isoformat(),
-            "message": message,
-            "payload": payload or {}
+            "event_message": message,  # Changed from "message" to avoid conflict with logging
+            "data": payload or {}  # Changed from "payload" to avoid any potential conflict
         }
         
         if level == "ERROR":
