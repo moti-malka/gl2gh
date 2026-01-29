@@ -38,7 +38,7 @@ class AgentClientFactory:
         """
         Get or create Azure AI client for MAF agents.
         
-        Returns None if Azure AI is not configured.
+        Returns None if Azure AI is not configured or not available.
         Uses AzureCliCredential by default (requires: az login)
         Falls back to DefaultAzureCredential for service principals.
         
