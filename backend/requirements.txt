@@ -38,9 +38,11 @@ websockets==12.0
 # Logging
 python-json-logger==2.0.7
 
-# Microsoft Agent Framework
-# Note: Using MAF patterns in code, actual library integration planned for Phase 2
-# When ready: pip install agent-framework-core --pre (beta versions like 1.0.0b260128)
+# Microsoft Agent Framework (pre-release)
+# Install with: pip install -r requirements.txt --pre
+agent-framework>=1.0.0b260128
+azure-identity>=1.15.0
+azure-core>=1.29.0
 
 # Testing
 pytest==7.4.3

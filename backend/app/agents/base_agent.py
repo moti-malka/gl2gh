@@ -5,13 +5,17 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 import asyncio
 from app.utils.logging import get_logger
+from app.agents.azure_ai_client import create_agent_with_instructions
 
 logger = get_logger(__name__)
 
 
 class BaseAgent(ABC):
     """
-    Base class for all migration agents using Microsoft Agent Framework patterns.
+    Base class for all migration agents using Microsoft Agent Framework.
+    
+    Uses the actual MAF library when Azure AI is configured, otherwise falls
+    back to deterministic implementations for offline/local usage.
     
     Each agent is a specialized entity with:
     - Clear input/output contracts
@@ -19,7 +23,7 @@ class BaseAgent(ABC):
     - Error handling with retries
     - Progress tracking via events
     - Context awareness
-    - Tool integration capabilities
+    - Tool integration capabilities (when using MAF)
     """
     
     def __init__(self, agent_name: str, instructions: str):
@@ -34,6 +38,27 @@ class BaseAgent(ABC):
         self.instructions = instructions
         self.context = {}
         self.logger = get_logger(f"{__name__}.{agent_name}")
+        self.maf_agent = None  # Will be initialized async
+        self._maf_initialized = False
+    
+    async def initialize_maf_agent(self):
+        """
+        Initialize Microsoft Agent Framework agent (async).
+        
+        Call this before using the agent if you want MAF support.
+        Falls back gracefully to local implementation if MAF not available.
+        """
+        if not self._maf_initialized:
+            self.maf_agent = await create_agent_with_instructions(
+                instructions=self.instructions,
+                name=self.agent_name
+            )
+            self._maf_initialized = True
+            
+            if self.maf_agent:
+                self.log_event("INFO", "MAF agent initialized successfully")
+            else:
+                self.log_event("INFO", "Using local implementation (MAF not available)")
     
     @abstractmethod
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:

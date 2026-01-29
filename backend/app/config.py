@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # Concurrency
     MAX_CONCURRENT_PROJECTS: int = 5
     
+    # Microsoft Agent Framework / Azure AI (Optional)
+    AZURE_AI_PROJECT_ENDPOINT: Optional[str] = None
+    AZURE_AI_MODEL_DEPLOYMENT_NAME: Optional[str] = None
+    AZURE_TENANT_ID: Optional[str] = None
+    AZURE_CLIENT_ID: Optional[str] = None
+    AZURE_CLIENT_SECRET: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
