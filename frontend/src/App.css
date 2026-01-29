@@ -40,6 +40,7 @@
 .nav-links {
   display: flex;
   gap: 2rem;
+  align-items: center;
 }
 
 .nav-links a {
@@ -50,6 +51,39 @@
 }
 
 .nav-links a:hover {
+  opacity: 0.8;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-left: 1rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.user-name {
+  color: white;
+  font-size: 0.875rem;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.user-name:hover {
+  opacity: 0.8;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0;
+  transition: opacity 0.2s;
+}
+
+.btn-link:hover {
   opacity: 0.8;
 }
 

@@ -19,6 +19,18 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Try to import Azure AI components - they are optional
+try:
+    from agent_framework.azure import AzureAIClient
+    from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
+    AZURE_AI_AVAILABLE = True
+except (ImportError, ModuleNotFoundError) as e:
+    logger.info(f"Azure AI components not available: {e}")
+    AZURE_AI_AVAILABLE = False
+    AzureAIClient = None
+    AzureCliCredential = None
+    DefaultAzureCredential = None
+
 
 class AgentClientFactory:
     """
@@ -34,7 +46,7 @@ class AgentClientFactory:
     _credential: Optional[any] = None
     
     @classmethod
-    async def get_azure_ai_client(cls) -> Optional[AzureAIClient]:
+    async def get_azure_ai_client(cls):
         """
         Get or create Azure AI client for MAF agents.
         
@@ -101,7 +113,7 @@ class AgentClientFactory:
     @classmethod
     def is_azure_ai_configured(cls) -> bool:
         """Check if Azure AI is configured"""
-        return bool(
+        return AZURE_AI_AVAILABLE and bool(
             settings.AZURE_AI_PROJECT_ENDPOINT and 
             settings.AZURE_AI_MODEL_DEPLOYMENT_NAME
         )
