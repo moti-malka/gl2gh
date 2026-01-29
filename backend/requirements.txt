@@ -1,7 +1,7 @@
 # FastAPI and server
-fastapi==0.109.0
+fastapi==0.109.1
 uvicorn[standard]==0.27.0
-python-multipart==0.0.6
+python-multipart==0.0.22
 
 # Database
 motor==3.3.2
@@ -26,7 +26,7 @@ pydantic-settings==2.1.0
 email-validator==2.1.0
 
 # Encryption
-cryptography==41.0.7
+cryptography==42.0.4
 
 # JSON and YAML
 jsonschema==4.20.0
