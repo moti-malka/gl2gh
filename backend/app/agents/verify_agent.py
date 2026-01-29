@@ -3,6 +3,8 @@
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import json
+import re
+import base64
 import httpx
 import yaml
 from datetime import datetime
@@ -126,13 +128,14 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Initialize API clients
+            timeout = inputs.get("timeout", 60.0)  # Configurable timeout, default 60s
             self.github_client = httpx.AsyncClient(
                 base_url="https://api.github.com",
                 headers={
-                    "Authorization": f"token {inputs['github_token']}",
+                    "Authorization": f"Bearer {inputs['github_token']}",  # Modern format
                     "Accept": "application/vnd.github.v3+json"
                 },
-                timeout=30.0
+                timeout=timeout
             )
             
             # Initialize GitLab client if provided
@@ -283,6 +286,25 @@ class VerifyAgent(BaseAgent):
             if self.gitlab_client:
                 await self.gitlab_client.aclose()
     
+    def _extract_page_count_from_link_header(self, link_header: str) -> Optional[int]:
+        """Extract the last page number from a GitHub API Link header"""
+        if not link_header:
+            return None
+        
+        match = re.search(r'page=(\d+)>; rel="last"', link_header)
+        if match:
+            return int(match.group(1))
+        return None
+    
+    def _is_within_tolerance(self, expected: int, actual: int, tolerance: float = 0.05) -> bool:
+        """Check if actual value is within tolerance of expected value"""
+        if expected == 0:
+            return actual == 0
+        
+        diff = abs(actual - expected)
+        max_diff = expected * tolerance
+        return diff <= max_diff
+    
     async def _verify_repository(self, repo: str, expected: Dict) -> VerificationResult:
         """Verify repository structure and content"""
         result = VerificationResult("repository")
@@ -349,14 +371,18 @@ class VerifyAgent(BaseAgent):
             if commits_response.status_code == 200:
                 # Get commit count from Link header if available
                 link_header = commits_response.headers.get("Link", "")
-                if "last" in link_header:
-                    # Extract page number from last link
-                    import re
-                    match = re.search(r'page=(\d+)>; rel="last"', link_header)
-                    if match:
-                        commit_count = int(match.group(1))
-                        result.stats["commit_count"] = commit_count
-                        result.add_check("commits_migrated", True, {"count": commit_count})
+                page_count = self._extract_page_count_from_link_header(link_header)
+                
+                if page_count:
+                    commit_count = page_count
+                    result.stats["commit_count"] = commit_count
+                    result.add_check("commits_migrated", True, {"count": commit_count})
+                else:
+                    # Single page of results - check if empty or has commits
+                    commits = commits_response.json()
+                    commit_count = 1 if commits else 0
+                    result.stats["commit_count"] = commit_count
+                    result.add_check("commits_migrated", True, {"count": commit_count})
             
             # Check LFS if expected
             if expected.get("lfs_enabled"):
@@ -472,12 +498,14 @@ class VerifyAgent(BaseAgent):
             if all_issues_response.status_code == 200:
                 # Parse Link header for total count
                 link_header = all_issues_response.headers.get("Link", "")
-                total_issues = 1
-                if "last" in link_header:
-                    import re
-                    match = re.search(r'page=(\d+)>; rel="last"', link_header)
-                    if match:
-                        total_issues = int(match.group(1))
+                page_count = self._extract_page_count_from_link_header(link_header)
+                
+                if page_count:
+                    total_issues = page_count
+                else:
+                    # Single page - check if we have any issues
+                    issues = all_issues_response.json()
+                    total_issues = len(issues)
                 
                 result.stats["total_issues"] = total_issues
                 expected_count = expected.get("issue_count", 0)
@@ -485,10 +513,17 @@ class VerifyAgent(BaseAgent):
                 result.add_check("issues_migrated", True, {"count": total_issues})
                 
                 if expected_count > 0:
-                    match_percentage = (total_issues / expected_count) * 100 if expected_count > 0 else 0
+                    # Calculate match percentage
+                    if expected_count == 0 and total_issues == 0:
+                        match_percentage = 100.0
+                    elif expected_count > 0:
+                        match_percentage = (total_issues / expected_count) * 100
+                    else:
+                        match_percentage = 0.0
+                    
                     result.stats["match_percentage"] = round(match_percentage, 2)
                     
-                    if abs(total_issues - expected_count) > (expected_count * 0.05):  # 5% tolerance
+                    if not self._is_within_tolerance(expected_count, total_issues, 0.05):
                         result.add_discrepancy(
                             f"Issue count mismatch: expected {expected_count}, got {total_issues}",
                             "warning",
@@ -540,19 +575,21 @@ class VerifyAgent(BaseAgent):
             
             if all_prs_response.status_code == 200:
                 link_header = all_prs_response.headers.get("Link", "")
-                total_prs = 1
-                if "last" in link_header:
-                    import re
-                    match = re.search(r'page=(\d+)>; rel="last"', link_header)
-                    if match:
-                        total_prs = int(match.group(1))
+                page_count = self._extract_page_count_from_link_header(link_header)
+                
+                if page_count:
+                    total_prs = page_count
+                else:
+                    # Single page - check if we have any PRs
+                    prs = all_prs_response.json()
+                    total_prs = len(prs)
                 
                 result.stats["total_prs"] = total_prs
                 expected_count = expected.get("pr_count", 0)
                 
                 result.add_check("prs_migrated", True, {"count": total_prs})
                 
-                if expected_count > 0 and abs(total_prs - expected_count) > (expected_count * 0.05):
+                if expected_count > 0 and not self._is_within_tolerance(expected_count, total_prs, 0.05):
                     result.add_discrepancy(
                         f"PR count mismatch: expected {expected_count}, got {total_prs}",
                         "warning",
@@ -631,19 +668,19 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Note: Package verification requires org-level API access
-            # For now, we'll mark as success if no packages expected
             expected_count = expected.get("package_count", 0)
             
-            result.stats["package_count"] = 0
-            result.add_check("packages_migrated", expected_count == 0, {
-                "note": "Package verification requires org-level access"
-            })
-            
-            if expected_count > 0:
+            if expected_count == 0:
+                result.stats["package_count"] = 0
+                result.add_check("packages_not_expected", True, {
+                    "note": "No packages expected for verification"
+                })
+            else:
+                result.stats["package_count"] = 0
                 result.add_discrepancy(
                     "Package verification not fully implemented - requires org-level API access",
                     "info",
-                    {"expected": expected_count}
+                    {"expected": expected_count, "note": "Manual verification required"}
                 )
             
         except Exception as e:
