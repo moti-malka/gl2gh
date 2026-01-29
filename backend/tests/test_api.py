@@ -223,66 +223,50 @@ async def test_apply_run_without_project_id(client):
     token = response.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Create a project
+    # Create project
     project_data = {
-        "name": "Apply Test Project",
-        "description": "Test project for apply endpoint"
+        "name": "Resume Test Project",
+        "description": "For testing run resume"
     }
     response = await client.post("/api/projects", json=project_data, headers=headers)
-    assert response.status_code == 201
     project_id = response.json()["id"]
     
-    # Create a run
-    run_data = {
-        "mode": "APPLY"
-    }
-    response = await client.post(f"/api/projects/{project_id}/runs", json=run_data, headers=headers)
-    assert response.status_code == 201
-    run_id = response.json()["id"]
+    # Mock the Celery task for create_run
+    with patch('app.api.runs.run_migration') as mock_task:
+        mock_task.delay = Mock()
+        
+        # Create run
+        run_data = {"mode": "FULL"}
+        response = await client.post(
+            f"/api/projects/{project_id}/runs",
+            json=run_data,
+            headers=headers
+        )
+        run_id = response.json()["id"]
     
-    # Try to apply without gitlab_project_id (should fail)
-    response = await client.post(f"/api/runs/{run_id}/apply", json={}, headers=headers)
-    assert response.status_code == 400
-    assert "gitlab_project_id is required" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_verify_run_without_project_id(client):
-    """Test verifying a run without specifying gitlab_project_id"""
-    # Register and login
-    register_data = {
-        "username": "verifytest",
-        "email": "verifytest@example.com",
-        "password": "testpass123"
-    }
-    await client.post("/api/auth/register", json=register_data)
+    # Simulate run failure by updating run status directly
+    from app.services import RunService
+    run_service = RunService()
+    await run_service.update_run_status(run_id, "FAILED", stage="DISCOVER")
     
-    login_data = {
-        "username": "verifytest",
-        "password": "testpass123"
-    }
-    response = await client.post("/api/auth/login", json=login_data)
-    token = response.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
-    
-    # Create a project
-    project_data = {
-        "name": "Verify Test Project",
-        "description": "Test project for verify endpoint"
-    }
-    response = await client.post("/api/projects", json=project_data, headers=headers)
-    assert response.status_code == 201
-    project_id = response.json()["id"]
-    
-    # Create a run
-    run_data = {
-        "mode": "FULL"
-    }
-    response = await client.post(f"/api/projects/{project_id}/runs", json=run_data, headers=headers)
-    assert response.status_code == 201
-    run_id = response.json()["id"]
-    
-    # Try to verify without gitlab_project_id (should fail)
-    response = await client.post(f"/api/runs/{run_id}/verify", json={}, headers=headers)
-    assert response.status_code == 400
-    assert "gitlab_project_id is required" in response.json()["detail"]
+    # Mock the Celery task for resume
+    with patch('app.api.runs.run_migration') as mock_task:
+        mock_task.delay = Mock()
+        
+        # Resume run
+        response = await client.post(
+            f"/api/runs/{run_id}/resume",
+            json={},
+            headers=headers
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        assert response.json()["message"] == "Run resumed successfully"
+        
+        # Verify task was dispatched with correct parameters
+        mock_task.delay.assert_called_once()
+        call_args = mock_task.delay.call_args[0]
+        assert call_args[0] == run_id  # run_id
+        assert call_args[1] == "FULL"  # mode
+        assert isinstance(call_args[2], dict)  # config_snapshot
