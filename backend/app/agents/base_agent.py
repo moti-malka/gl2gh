@@ -115,7 +115,7 @@ class BaseAgent(ABC):
         log_data = {
             "agent": self.agent_name,
             "timestamp": datetime.utcnow().isoformat(),
-            "message": message,
+            "log_message": message,  # Changed from 'message' to avoid LogRecord conflict
             "payload": payload or {}
         }
         
