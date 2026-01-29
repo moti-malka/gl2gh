@@ -310,7 +310,7 @@ export const ProjectSettingsPage = () => {
                 ...formData,
                 settings: {
                   ...formData.settings,
-                  behavior: { ...formData.settings.behavior, parallel_migrations: parseInt(e.target.value) }
+                  behavior: { ...formData.settings.behavior, parallel_migrations: parseInt(e.target.value) || 1 }
                 }
               })}
             />

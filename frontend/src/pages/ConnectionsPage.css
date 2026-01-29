@@ -151,6 +151,35 @@
   border-top: 1px solid #e2e8f0;
 }
 
+/* Status Badge Styles */
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-active,
+.status-connected {
+  background: #c6f6d5;
+  color: #22543d;
+}
+
+.status-pending,
+.status-unknown {
+  background: #e2e8f0;
+  color: #4a5568;
+}
+
+.status-failed,
+.status-error {
+  background: #fed7d7;
+  color: #742a2a;
+}
+
 @media (max-width: 768px) {
   .connections-grid {
     grid-template-columns: 1fr;

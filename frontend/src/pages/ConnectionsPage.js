@@ -107,7 +107,13 @@ export const ConnectionsPage = () => {
           <p className="page-subtitle">Configure GitLab source and GitHub target connections</p>
         </div>
         <button 
-          onClick={() => setShowAddForm(!showAddForm)} 
+          onClick={() => {
+            if (showAddForm) {
+              // Reset form when closing
+              setFormData({ type: 'gitlab', url: '', token: '', name: '' });
+            }
+            setShowAddForm(!showAddForm);
+          }} 
           className="btn btn-primary"
         >
           + Add Connection
@@ -174,7 +180,10 @@ export const ConnectionsPage = () => {
               </button>
               <button 
                 type="button" 
-                onClick={() => setShowAddForm(false)} 
+                onClick={() => {
+                  setShowAddForm(false);
+                  setFormData({ type: 'gitlab', url: '', token: '', name: '' });
+                }} 
                 className="btn"
               >
                 Cancel
