@@ -34,11 +34,11 @@ class AgentClientFactory:
     _credential: Optional[any] = None
     
     @classmethod
-    async def get_azure_ai_client(cls) -> Optional[AzureAIClient]:
+    async def get_azure_ai_client(cls):
         """
         Get or create Azure AI client for MAF agents.
         
-        Returns None if Azure AI is not configured.
+        Returns None if Azure AI is not configured or not available.
         Uses AzureCliCredential by default (requires: az login)
         Falls back to DefaultAzureCredential for service principals.
         
