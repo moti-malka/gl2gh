@@ -89,3 +89,38 @@ def mask_sensitive_data(text: str) -> str:
     text = re.sub(r'Bearer [A-Za-z0-9._-]+', 'Bearer ****', text)
     
     return text
+
+
+def sanitize_project_settings(settings: dict) -> dict:
+    """
+    Sanitize project settings by masking sensitive tokens.
+    
+    Args:
+        settings: Raw project settings dictionary containing gitlab/github configs
+        
+    Returns:
+        Sanitized settings with tokens masked showing only last 4 characters
+    """
+    sanitized = settings.copy()
+    
+    # Sanitize GitLab settings
+    if "gitlab" in sanitized and isinstance(sanitized["gitlab"], dict):
+        gitlab = sanitized["gitlab"].copy()
+        if "token" in gitlab:
+            token = gitlab["token"]
+            # Replace full token with token_last4
+            del gitlab["token"]
+            gitlab["token_last4"] = get_token_last4(token)
+        sanitized["gitlab"] = gitlab
+    
+    # Sanitize GitHub settings
+    if "github" in sanitized and isinstance(sanitized["github"], dict):
+        github = sanitized["github"].copy()
+        if "token" in github:
+            token = github["token"]
+            # Replace full token with token_last4
+            del github["token"]
+            github["token_last4"] = get_token_last4(token)
+        sanitized["github"] = github
+    
+    return sanitized
