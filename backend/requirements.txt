@@ -34,6 +34,7 @@ PyYAML==6.0.1
 
 # WebSocket support
 websockets>=15.0.1
+python-socketio>=5.10.0
 
 # Logging
 python-json-logger==2.0.7
