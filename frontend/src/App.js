@@ -5,11 +5,13 @@ import { ToastProvider } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectWizardPage } from './pages/ProjectWizardPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { RunCreationPage } from './pages/RunCreationPage';
 import { RunDashboardPage } from './pages/RunDashboardPage';
+import { UserMappingPage } from './pages/UserMappingPage';
 import './App.css';
 
 function App() {
@@ -45,7 +47,7 @@ function AppContent() {
               <Link to="/docs">Docs</Link>
               {user && (
                 <div className="user-menu">
-                  <span className="user-name">{user.username}</span>
+                  <Link to="/profile" className="user-name">{user.username}</Link>
                   <button onClick={logout} className="btn-link">
                     Logout
                   </button>
@@ -67,6 +69,14 @@ function AppContent() {
               ) : (
                 <HomePage />
               )
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
             }
           />
           <Route
@@ -98,6 +108,14 @@ function AppContent() {
             element={
               <ProtectedRoute requireRole="operator">
                 <RunCreationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:projectId/user-mapping"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <UserMappingPage />
               </ProtectedRoute>
             }
           />

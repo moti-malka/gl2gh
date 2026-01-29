@@ -65,6 +65,12 @@
 .user-name {
   color: white;
   font-size: 0.875rem;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.user-name:hover {
+  opacity: 0.8;
 }
 
 .btn-link {
