@@ -7,17 +7,17 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Try to import Azure AI dependencies, but allow graceful fallback
+# Try to import Azure AI components - they are optional
 try:
     from agent_framework.azure import AzureAIClient
     from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
     AZURE_AI_AVAILABLE = True
-except ImportError:
-    logger.info("Azure AI dependencies not available, agents will run in local mode")
+except (ImportError, ModuleNotFoundError) as e:
+    logger.info(f"Azure AI components not available: {e}")
+    AZURE_AI_AVAILABLE = False
     AzureAIClient = None
     AzureCliCredential = None
     DefaultAzureCredential = None
-    AZURE_AI_AVAILABLE = False
 
 
 class AgentClientFactory:
@@ -52,9 +52,9 @@ class AgentClientFactory:
             - AZURE_CLIENT_SECRET
         """
         if not AZURE_AI_AVAILABLE:
-            logger.debug("Azure AI dependencies not installed")
+            logger.info("Azure AI libraries not installed, agents will run in local mode")
             return None
-            
+        
         if not settings.AZURE_AI_PROJECT_ENDPOINT or not settings.AZURE_AI_MODEL_DEPLOYMENT_NAME:
             logger.info("Azure AI not configured, agents will run in local mode")
             return None
