@@ -2,6 +2,18 @@
 
 import os
 from typing import Optional
+
+# Make Azure AI imports optional
+try:
+    from agent_framework.azure import AzureAIClient
+    from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
+    AZURE_AI_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    AZURE_AI_AVAILABLE = False
+    AzureAIClient = None
+    AzureCliCredential = None
+    DefaultAzureCredential = None
+
 from app.config import settings
 from app.utils.logging import get_logger
 
@@ -52,7 +64,7 @@ class AgentClientFactory:
             - AZURE_CLIENT_SECRET
         """
         if not AZURE_AI_AVAILABLE:
-            logger.info("Azure AI libraries not installed, agents will run in local mode")
+            logger.info("Azure AI packages not installed, agents will run in local mode")
             return None
         
         if not settings.AZURE_AI_PROJECT_ENDPOINT or not settings.AZURE_AI_MODEL_DEPLOYMENT_NAME:
