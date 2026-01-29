@@ -68,6 +68,7 @@ export const LoginPage = () => {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Enter your username"
               disabled={loading}
+              autoComplete="username"
               autoFocus
             />
           </div>
@@ -81,6 +82,7 @@ export const LoginPage = () => {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
               disabled={loading}
+              autoComplete="current-password"
             />
           </div>
 

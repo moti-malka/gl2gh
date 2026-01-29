@@ -1,11 +1,15 @@
 /**
  * User Mapping Page
+ * Note: This currently uses mock data for demonstration. 
+ * In production, this should fetch data from the backend API.
  */
 import React, { useState } from 'react';
 import { useToast } from '../components/Toast';
 import './UserMappingPage.css';
 
 export const UserMappingPage = () => {
+  // TODO: Replace with actual API call to fetch user mappings
+  // Example: const { data: mappings } = useQuery(['user-mappings', projectId], () => fetchUserMappings(projectId));
   const [mappings, setMappings] = useState([
     {
       id: 1,
