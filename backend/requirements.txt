@@ -5,7 +5,7 @@ python-multipart>=0.0.22
 
 # Database
 motor==3.3.2
-pymongo==4.6.1
+pymongo==4.6.3
 
 # Authentication
 python-jose[cryptography]==3.3.0
