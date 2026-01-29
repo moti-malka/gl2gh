@@ -1,38 +1,140 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { LoginPage } from './pages/LoginPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { ProjectWizardPage } from './pages/ProjectWizardPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { RunCreationPage } from './pages/RunCreationPage';
+import { RunDashboardPage } from './pages/RunDashboardPage';
+import { UserMappingPage } from './pages/UserMappingPage';
 import './App.css';
 
 function App() {
   return (
-    <Router>
-      <div className="App">
+    <ErrorBoundary>
+      <AuthProvider>
+        <ToastProvider>
+          <Router>
+            <AppContent />
+          </Router>
+        </ToastProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
+  const { isAuthenticated, user, logout } = useAuth();
+
+  return (
+    <div className="App">
+      {isAuthenticated && (
         <header className="App-header">
           <nav className="navbar">
             <div className="nav-brand">
-              <h1>gl2gh</h1>
-              <span className="tagline">GitLab → GitHub Migration Platform</span>
+              <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <h1>gl2gh</h1>
+                <span className="tagline">GitLab → GitHub Migration Platform</span>
+              </Link>
             </div>
             <div className="nav-links">
-              <Link to="/">Home</Link>
               <Link to="/projects">Projects</Link>
               <Link to="/docs">Docs</Link>
+              {user && (
+                <div className="user-menu">
+                  <Link to="/profile" className="user-name">{user.username}</Link>
+                  <button onClick={logout} className="btn-link">
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           </nav>
         </header>
-        
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/docs" element={<DocsPage />} />
-          </Routes>
-        </main>
-        
-        <footer className="App-footer">
-          <p>gl2gh Migration Platform v0.1.0</p>
-        </footer>
-      </div>
-    </Router>
+      )}
+      
+      <main className="main-content">
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/"
+            element={
+              isAuthenticated ? (
+                <Navigate to="/projects" replace />
+              ) : (
+                <HomePage />
+              )
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/new"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <ProjectWizardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:id"
+            element={
+              <ProtectedRoute>
+                <ProjectDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:projectId/runs/new"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <RunCreationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:projectId/user-mapping"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <UserMappingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/runs/:runId"
+            element={
+              <ProtectedRoute>
+                <RunDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/docs" element={<DocsPage />} />
+        </Routes>
+      </main>
+      
+      <footer className="App-footer">
+        <p>gl2gh Migration Platform v0.1.0</p>
+      </footer>
+    </div>
   );
 }
 
@@ -68,22 +170,7 @@ function HomePage() {
   );
 }
 
-function ProjectsPage() {
-  return (
-    <div className="page projects-page">
-      <div className="page-header">
-        <h1>Migration Projects</h1>
-        <button className="btn btn-primary">+ New Project</button>
-      </div>
-      <div className="content">
-        <div className="empty-state">
-          <p>No migration projects yet.</p>
-          <p className="hint">Create your first project to get started.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
+
 
 function DocsPage() {
   return (
