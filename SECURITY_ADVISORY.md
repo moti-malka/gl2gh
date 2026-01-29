@@ -1,9 +1,31 @@
 # Security Advisory - Dependency Updates
 
 ## Date: 2024-01-29
+**Last Updated**: 2026-01-29
 
 ## Summary
-Updated multiple dependencies to address security vulnerabilities identified in the initial dependency set.
+Updated multiple dependencies to address security vulnerabilities and compatibility issues identified in the initial dependency set.
+
+## Compatibility Issues Fixed
+
+### bcrypt Version Pinning (Pinned to 4.0.1)
+
+#### Compatibility Issue: bcrypt 4.1.0+ breaks passlib 1.7.4
+- **Severity**: High (breaks authentication)
+- **Affected Versions**: bcrypt >= 4.1.0 with passlib 1.7.4
+- **Fix**: Pin bcrypt to 4.0.1
+- **Description**: bcrypt version 4.1.0 and later introduced stricter password length validation and removed internal attributes that passlib 1.7.4 depends on. This causes `ValueError: password cannot be longer than 72 bytes` and `AttributeError: module 'bcrypt' has no attribute '__about__'` errors during authentication operations.
+- **Impact**: Complete authentication failure - users cannot log in, password hashing fails.
+- **Root Cause**: 
+  - bcrypt 4.1.0+ enforces strict 72-byte password limit (per bcrypt specification)
+  - bcrypt 4.1.0+ removed the `__about__.__version__` attribute that passlib uses for version detection
+  - passlib 1.7.4 (last official release) was written before these changes and doesn't handle them gracefully
+- **Solution Applied**: Added explicit `bcrypt==4.0.1` pin to `backend/requirements.txt`
+- **Long-term Options**:
+  1. **Wait for official passlib update** (none available as of 2026-01-29)
+  2. **Consider community forks** like `notypecheck/passlib` that support bcrypt 4.1+
+  3. **Migrate to direct bcrypt usage** or modern alternatives like argon2id
+  4. **Keep current pin** (safest option for production stability)
 
 ## Vulnerabilities Fixed
 
@@ -57,14 +79,19 @@ Updated multiple dependencies to address security vulnerabilities identified in 
 
 ## Actions Taken
 
-1. **Updated cryptography**: 41.0.7 → 42.0.4
+1. **Pinned bcrypt**: 4.0.1 (compatibility fix)
+   - Prevents authentication failures with passlib 1.7.4
+   - Blocks automatic upgrade to incompatible bcrypt 4.1+
+   - Maintains stable password hashing functionality
+
+2. **Updated cryptography**: 41.0.7 → 42.0.4
    - Fixes NULL pointer dereference
    - Fixes Bleichenbacher timing oracle attack
 
-2. **Updated fastapi**: 0.109.0 → 0.109.1
+3. **Updated fastapi**: 0.109.0 → 0.109.1
    - Fixes Content-Type header ReDoS
 
-3. **Updated python-multipart**: 0.0.6 → 0.0.22
+4. **Updated python-multipart**: 0.0.6 → 0.0.22
    - Fixes arbitrary file write vulnerability
    - Fixes DoS via malformed boundary
    - Fixes Content-Type header ReDoS
@@ -156,9 +183,10 @@ All updates are drop-in replacements. No application code changes are needed.
 ✅ **Updated to patched versions**
 ✅ **Backward compatible updates**
 ✅ **No code changes required**
+✅ **bcrypt compatibility issue resolved**
 ✅ **Ready for deployment**
 
 ---
 
-**Last Updated**: 2024-01-29
-**Next Review**: 2024-02-29
+**Last Updated**: 2026-01-29
+**Next Review**: 2026-02-29
