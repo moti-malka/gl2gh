@@ -26,7 +26,7 @@ pydantic-settings>=2.5.2
 email-validator==2.1.0
 
 # Encryption
-cryptography==42.0.4
+cryptography==44.0.1
 
 # JSON and YAML
 jsonschema==4.20.0
