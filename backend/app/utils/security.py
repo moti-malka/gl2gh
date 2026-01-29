@@ -7,6 +7,7 @@ from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 import base64
 import hashlib
+import copy
 from app.config import settings
 
 # Password hashing
@@ -89,3 +90,35 @@ def mask_sensitive_data(text: str) -> str:
     text = re.sub(r'Bearer [A-Za-z0-9._-]+', 'Bearer ****', text)
     
     return text
+
+
+def sanitize_project_settings(settings: dict) -> dict:
+    """
+    Sanitize project settings by masking sensitive tokens.
+    
+    Args:
+        settings: Raw project settings dictionary containing gitlab/github configs
+        
+    Returns:
+        Sanitized settings with tokens masked showing only last 4 characters
+    """
+    # Use deep copy to ensure complete isolation from original settings
+    sanitized = copy.deepcopy(settings)
+    
+    # Sanitize GitLab settings
+    if "gitlab" in sanitized and isinstance(sanitized["gitlab"], dict):
+        if "token" in sanitized["gitlab"]:
+            token = sanitized["gitlab"]["token"]
+            # Replace full token with token_last4
+            del sanitized["gitlab"]["token"]
+            sanitized["gitlab"]["token_last4"] = get_token_last4(token)
+    
+    # Sanitize GitHub settings
+    if "github" in sanitized and isinstance(sanitized["github"], dict):
+        if "token" in sanitized["github"]:
+            token = sanitized["github"]["token"]
+            # Replace full token with token_last4
+            del sanitized["github"]["token"]
+            sanitized["github"]["token_last4"] = get_token_last4(token)
+    
+    return sanitized

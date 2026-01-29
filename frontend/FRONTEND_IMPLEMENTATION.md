@@ -173,20 +173,20 @@ frontend/src/
 ## API Integration
 
 ### Endpoints Used
-- `POST /api/v1/auth/login` - User authentication
-- `POST /api/v1/auth/refresh` - Token refresh
-- `GET /api/v1/auth/me` - Current user
-- `PUT /api/v1/auth/me` - Update profile
-- `POST /api/v1/auth/change-password` - Change password
-- `GET /api/v1/projects` - List projects
-- `POST /api/v1/projects` - Create project
-- `GET /api/v1/projects/:id` - Get project
-- `DELETE /api/v1/projects/:id` - Delete project
-- `GET /api/v1/projects/:id/runs` - List runs
-- `POST /api/v1/projects/:id/runs` - Create run
-- `GET /api/v1/runs/:id` - Get run
-- `POST /api/v1/runs/:id/cancel` - Cancel run
-- `GET /api/v1/runs/:id/events` - Get events
+- `POST /api/auth/login` - User authentication
+- `POST /api/auth/refresh` - Token refresh
+- `GET /api/auth/me` - Current user
+- `PUT /api/auth/me` - Update profile
+- `POST /api/auth/change-password` - Change password
+- `GET /api/projects` - List projects
+- `POST /api/projects` - Create project
+- `GET /api/projects/:id` - Get project
+- `DELETE /api/projects/:id` - Delete project
+- `GET /api/projects/:id/runs` - List runs
+- `POST /api/projects/:id/runs` - Create run
+- `GET /api/runs/:id` - Get run
+- `POST /api/runs/:id/cancel` - Cancel run
+- `GET /api/runs/:id/events` - Get events
 
 ### WebSocket Events
 - `connect` - Connection established
@@ -210,7 +210,7 @@ npm run build
 ```
 
 ### Environment Variables
-- `REACT_APP_API_URL` - Backend API URL (default: `/api/v1`)
+- `REACT_APP_API_URL` - Backend API URL (default: `/api`)
 - `REACT_APP_WS_URL` - WebSocket URL (default: `http://localhost:8000`)
 
 ## Testing

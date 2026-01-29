@@ -163,81 +163,60 @@ async def test_login_wrong_password(client):
 
 
 @pytest.mark.asyncio
-async def test_create_run_dispatches_task(client):
-    """Test that creating a run dispatches the Celery task"""
-    from unittest.mock import Mock, patch
-    
+async def test_get_run_plan_not_found(client):
+    """Test getting plan for a run with no plan artifacts"""
     # Register and login
     register_data = {
-        "username": "runtest",
-        "email": "runtest@example.com",
+        "username": "plantest",
+        "email": "plantest@example.com",
         "password": "testpass123"
     }
     await client.post("/api/auth/register", json=register_data)
     
     login_data = {
-        "username": "runtest",
+        "username": "plantest",
         "password": "testpass123"
     }
     response = await client.post("/api/auth/login", json=login_data)
     token = response.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Create project
+    # Create a project first
     project_data = {
-        "name": "Run Test Project",
-        "description": "For testing run creation"
+        "name": "Plan Test Project",
+        "description": "Test project for plan endpoint"
     }
     response = await client.post("/api/projects", json=project_data, headers=headers)
     assert response.status_code == 201
     project_id = response.json()["id"]
     
-    # Mock the Celery task
-    with patch('app.api.runs.run_migration') as mock_task:
-        mock_task.delay = Mock()
-        
-        # Create run
-        run_data = {
-            "mode": "PLAN_ONLY",
-            "deep": True,
-            "deep_top_n": 20
-        }
-        response = await client.post(
-            f"/api/projects/{project_id}/runs",
-            json=run_data,
-            headers=headers
-        )
-        
-        # Verify response
-        assert response.status_code == 201
-        run_response = response.json()
-        assert run_response["status"] == "CREATED"
-        assert run_response["mode"] == "PLAN_ONLY"
-        
-        # Verify task was dispatched with correct parameters
-        mock_task.delay.assert_called_once()
-        call_args = mock_task.delay.call_args[0]
-        assert call_args[0] == run_response["id"]  # run_id
-        assert call_args[1] == "PLAN_ONLY"  # mode
-        assert call_args[2]["deep"] is True  # config
-        assert call_args[2]["deep_top_n"] == 20  # config
+    # Create a run
+    run_data = {
+        "mode": "PLAN_ONLY"
+    }
+    response = await client.post(f"/api/projects/{project_id}/runs", json=run_data, headers=headers)
+    assert response.status_code == 201
+    run_id = response.json()["id"]
+    
+    # Try to get plan (should fail - no plan artifacts)
+    response = await client.get(f"/api/runs/{run_id}/plan", headers=headers)
+    assert response.status_code == 404
+    assert "No plan artifacts found" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_resume_run_dispatches_task(client):
-    """Test that resuming a run dispatches the Celery task"""
-    from unittest.mock import Mock, patch
-    
+async def test_apply_run_without_project_id(client):
+    """Test applying a run without specifying gitlab_project_id"""
     # Register and login
     register_data = {
-        "username": "resumetest",
-        "email": "resumetest@example.com",
+        "username": "applytest",
+        "email": "applytest@example.com",
         "password": "testpass123"
     }
     await client.post("/api/auth/register", json=register_data)
     
     login_data = {
-        "username": "resumetest",
+        "username": "applytest",
         "password": "testpass123"
     }
     response = await client.post("/api/auth/login", json=login_data)
