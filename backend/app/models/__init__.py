@@ -163,3 +163,16 @@ class Artifact(MongoBaseModel):
     size_bytes: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+# User Mapping Models
+class UserMapping(MongoBaseModel):
+    """User mapping model for GitLab to GitHub user mapping"""
+    run_id: PyObjectId
+    gitlab_username: str
+    gitlab_email: Optional[str] = None
+    github_username: Optional[str] = None
+    confidence: float = 0.0  # 0.0 to 1.0
+    is_manual: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
