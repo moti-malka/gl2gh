@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discovery-agent-config
+  namespace: discovery-agent
+data:
+  OUTPUT_DIR: "/data/output"
+  MAX_API_CALLS: "5000"
+  MAX_PER_PROJECT_CALLS: "200"
+  LOG_LEVEL: "INFO"
+  JSON_LOGGING: "true"
+  ENVIRONMENT: "production"
+  ENABLE_METRICS: "true"
+  METRICS_PORT: "9090"
+  HEALTH_CHECK_PORT: "8080"

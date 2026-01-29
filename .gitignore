@@ -88,3 +88,56 @@ test-out-*/
 *.key
 secrets.yaml
 secrets.json
+*-token.txt
+gitlab-token*
+
+# Backup files
+backup/
+*.tar.gz
+*.zip
+*.bak
+
+# Docker volumes and data
+docker-data/
+prometheus-data/
+grafana-data/
+alertmanager-data/
+
+# Kubernetes generated files
+k8s-generated/
+*.kubeconfig
+
+# Monitoring data
+monitoring/data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# SBOM and security reports
+sbom.*.json
+*.sbom
+bandit-report.json
+trivy-report.json
+vulnerability-*.json
+
+# Profile data
+*.prof
+*.stats
+profile.*
+
+# Local development overrides
+docker-compose.override.yml
+.env.production
+.env.staging
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+site/

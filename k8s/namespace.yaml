@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: discovery-agent
+  labels:
+    name: discovery-agent
+    environment: production

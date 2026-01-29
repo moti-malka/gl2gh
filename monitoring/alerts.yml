@@ -1,0 +1,142 @@
+groups:
+  - name: discovery_agent_alerts
+    interval: 30s
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(discovery_errors_total[5m])) 
+            / 
+            sum(rate(discovery_projects_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: discovery-agent
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # Critical error rate alert
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            sum(rate(discovery_errors_total[5m])) 
+            / 
+            sum(rate(discovery_projects_total[5m]))
+          ) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+          component: discovery-agent
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # API rate limit approaching
+      - alert: APIRateLimitApproaching
+        expr: gitlab_api_rate_limit_remaining < 100
+        for: 1m
+        labels:
+          severity: warning
+          component: discovery-agent
+        annotations:
+          summary: "GitLab API rate limit approaching"
+          description: "Only {{ $value }} API calls remaining"
+
+      # API rate limit exhausted
+      - alert: APIRateLimitExhausted
+        expr: gitlab_api_rate_limit_remaining == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: discovery-agent
+        annotations:
+          summary: "GitLab API rate limit exhausted"
+          description: "API rate limit has been exhausted"
+
+      # High API latency
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(gitlab_api_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: discovery-agent
+        annotations:
+          summary: "High API latency detected"
+          description: "95th percentile API latency is {{ $value }}s"
+
+      # Service down
+      - alert: ServiceDown
+        expr: up{job="discovery-agent"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: discovery-agent
+        annotations:
+          summary: "Discovery Agent is down"
+          description: "The discovery agent service has been down for more than 2 minutes"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            container_memory_usage_bytes{container="discovery-agent"} 
+            / 
+            container_spec_memory_limit_bytes{container="discovery-agent"}
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: discovery-agent
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is at {{ $value | humanizePercentage }}"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          (
+            rate(container_cpu_usage_seconds_total{container="discovery-agent"}[5m]) 
+            / 
+            container_spec_cpu_quota{container="discovery-agent"} 
+            * 100000
+          ) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: discovery-agent
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is at {{ $value }}%"
+
+      # Long-running discovery
+      - alert: LongRunningDiscovery
+        expr: discovery_duration_seconds > 3600
+        for: 5m
+        labels:
+          severity: info
+          component: discovery-agent
+        annotations:
+          summary: "Discovery running for extended period"
+          description: "Discovery has been running for {{ $value | humanizeDuration }}"
+
+      # API request failures
+      - alert: HighAPIFailureRate
+        expr: |
+          (
+            sum(rate(gitlab_api_requests_total{status_code=~"5.."}[5m])) 
+            / 
+            sum(rate(gitlab_api_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: discovery-agent
+        annotations:
+          summary: "High API failure rate"
+          description: "API failure rate is {{ $value | humanizePercentage }}"

@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discovery-agent
+  namespace: discovery-agent
+  labels:
+    app: discovery-agent
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: discovery-agent
+  template:
+    metadata:
+      labels:
+        app: discovery-agent
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: discovery-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: discovery-agent
+          image: discovery-agent:0.1.0  # Update with your registry
+          imagePullPolicy: IfNotPresent
+          
+          envFrom:
+            - configMapRef:
+                name: discovery-agent-config
+            - secretRef:
+                name: discovery-agent-secrets
+          
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: logs
+              mountPath: /var/log/discovery-agent
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: discovery-agent-data
+        - name: logs
+          emptyDir: {}
+      
+      restartPolicy: Always

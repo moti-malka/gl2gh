@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: discovery-agent
+  namespace: discovery-agent
+  labels:
+    app: discovery-agent
+spec:
+  type: ClusterIP
+  ports:
+    - name: health
+      port: 8080
+      targetPort: health
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: discovery-agent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: discovery-agent-metrics
+  namespace: discovery-agent
+  labels:
+    app: discovery-agent
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: discovery-agent
