@@ -97,11 +97,18 @@ class PlanGenerator:
     def generate_idempotency_key(self, action_type: str, entity_id: str, extra: str = "") -> str:
         """
         Generate deterministic idempotency key.
-        Format: {project_id}:{action_type}:{entity_id}:{hash}
+        Format: {action_type}-{entity_id_clean}-{hash}
+        
+        Note: entity_id should be a stable identifier from the source data (e.g., issue IID, label name)
+        to ensure the same action in different runs gets the same key.
         """
+        # Clean entity_id for use in key (remove special chars, limit length)
+        entity_id_clean = str(entity_id).replace("/", "-").replace(":", "-")[:50]
+        
+        # Hash includes all identifying information for determinism
         data = f"{self.project_id}:{action_type}:{entity_id}:{extra}"
         hash_suffix = hashlib.sha256(data.encode()).hexdigest()[:8]
-        return f"{action_type}-{entity_id}-{hash_suffix}"
+        return f"{action_type}-{entity_id_clean}-{hash_suffix}"
     
     def add_action(
         self,
@@ -120,9 +127,18 @@ class PlanGenerator:
         """Add an action to the plan"""
         action_id = self.generate_action_id()
         
-        # Generate idempotency key
-        entity_id = parameters.get("name") or parameters.get("title") or parameters.get("tag_name") or str(action_id)
-        idempotency_key = self.generate_idempotency_key(action_type, entity_id)
+        # Generate idempotency key - use stable identifiers from source data
+        # Priority: explicit IDs (iid, tag_name) > names > action_id
+        entity_id = (
+            parameters.get("gitlab_issue_iid") or 
+            parameters.get("gitlab_mr_iid") or
+            parameters.get("tag_name") or
+            parameters.get("name") or 
+            parameters.get("title") or 
+            parameters.get("branch") or
+            action_id
+        )
+        idempotency_key = self.generate_idempotency_key(action_type, str(entity_id))
         
         action = {
             "id": action_id,
@@ -186,14 +202,20 @@ class PlanGenerator:
         return len(errors) == 0, errors
     
     def topological_sort(self) -> List[str]:
-        """Perform topological sort to get execution order"""
+        """Perform topological sort to get execution order using Kahn's algorithm"""
         in_degree = {action_id: 0 for action_id in self.action_map}
         
-        # Calculate in-degrees (count how many actions depend on each action)
+        # Calculate in-degrees (count dependencies for each action)
         for action_id, deps in self.dependency_graph.items():
             for dep in deps:
                 if dep in in_degree:
                     in_degree[action_id] += 1
+        
+        # Build reverse dependency map for efficient lookup
+        reverse_deps = defaultdict(list)
+        for action_id, deps in self.dependency_graph.items():
+            for dep in deps:
+                reverse_deps[dep].append(action_id)
         
         # Find all nodes with in-degree 0
         queue = deque([action_id for action_id, degree in in_degree.items() if degree == 0])
@@ -203,12 +225,12 @@ class PlanGenerator:
             action_id = queue.popleft()
             sorted_actions.append(action_id)
             
-            # Reduce in-degree for dependent actions
-            for other_id, deps in self.dependency_graph.items():
-                if action_id in deps and other_id not in sorted_actions:
-                    in_degree[other_id] -= 1
-                    if in_degree[other_id] == 0:
-                        queue.append(other_id)
+            # Reduce in-degree for dependent actions using reverse map
+            for dependent_id in reverse_deps[action_id]:
+                if dependent_id not in sorted_actions:
+                    in_degree[dependent_id] -= 1
+                    if in_degree[dependent_id] == 0:
+                        queue.append(dependent_id)
         
         return sorted_actions
     
@@ -249,7 +271,7 @@ class PlanGenerator:
         
         return phases
     
-    def build_plan(self) -> Dict[str, Any]:
+    def build_plan(self, export_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """Build complete plan"""
         # Validate dependencies
         valid, errors = self.validate_dependencies()
@@ -301,7 +323,7 @@ class PlanGenerator:
             "metadata": {
                 "generated_by": "PlanAgent",
                 "generator_version": "1.0",
-                "gitlab_version": "16.5.0",
+                "gitlab_version": export_data.get("gitlab_version", "16.5.0") if export_data else "16.5.0",
                 "github_api_version": "2022-11-28"
             }
         }
@@ -340,8 +362,17 @@ class PlanAgent(BaseAgent):
     
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """Validate plan inputs"""
+        # Only output_dir is strictly required, other fields have defaults
         required = ["output_dir"]
-        return all(field in inputs for field in required)
+        has_required = all(field in inputs for field in required)
+        
+        # Optionally warn if important fields are missing but provide defaults
+        recommended = ["run_id", "project_id", "gitlab_project", "github_target"]
+        missing_recommended = [f for f in recommended if f not in inputs]
+        if missing_recommended and has_required:
+            self.log_event("WARN", f"Using defaults for: {', '.join(missing_recommended)}")
+        
+        return has_required
     
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Execute plan generation"""
@@ -371,7 +402,7 @@ class PlanAgent(BaseAgent):
             self._generate_plan_actions(generator, export_data, transform_data, user_inputs_required)
             
             # Build complete plan
-            plan = generator.build_plan()
+            plan = generator.build_plan(export_data)
             plan["user_inputs_required"] = user_inputs_required
             
             # Generate artifacts
@@ -600,11 +631,12 @@ class PlanAgent(BaseAgent):
             if issue_milestone and issue_milestone in milestone_action_ids:
                 deps.append(milestone_action_ids[issue_milestone])
             
+            # Keep full title (GitHub supports up to 256 chars)
             generator.add_action(
                 action_type=ActionType.ISSUE_CREATE,
                 component="issues",
                 phase=Phase.ISSUE_IMPORT,
-                description=f"Import issue #{issue.get('iid')}: {issue.get('title', 'Untitled')[:50]}",
+                description=f"Import issue #{issue.get('iid')}: {issue.get('title', 'Untitled')[:80]}{'...' if len(issue.get('title', '')) > 80 else ''}",
                 parameters={
                     "target_repo": generator.github_target,
                     "gitlab_issue_iid": issue.get("iid"),
@@ -624,6 +656,8 @@ class PlanAgent(BaseAgent):
         
         # Phase 5: PR Import
         merge_requests = export_data.get("merge_requests", [])
+        default_branch = export_data.get("default_branch", "main")
+        
         for mr in merge_requests:
             deps = [repo_push_id]
             
@@ -633,18 +667,19 @@ class PlanAgent(BaseAgent):
                 if label_name in label_action_ids:
                     deps.append(label_action_ids[label_name])
             
+            # Keep full title (GitHub supports up to 256 chars)
             generator.add_action(
                 action_type=ActionType.PR_CREATE,
                 component="pull_requests",
                 phase=Phase.PR_IMPORT,
-                description=f"Import MR !{mr.get('iid')} as PR: {mr.get('title', 'Untitled')[:50]}",
+                description=f"Import MR !{mr.get('iid')} as PR: {mr.get('title', 'Untitled')[:80]}{'...' if len(mr.get('title', '')) > 80 else ''}",
                 parameters={
                     "target_repo": generator.github_target,
                     "gitlab_mr_iid": mr.get("iid"),
                     "title": mr.get("title"),
                     "body": mr.get("description", ""),
                     "head": mr.get("source_branch"),
-                    "base": mr.get("target_branch", "main"),
+                    "base": mr.get("target_branch", default_branch),
                     "labels": mr_labels,
                     "reviewers": mr.get("reviewers", []),
                     "state": mr.get("state", "open"),
@@ -760,7 +795,7 @@ class PlanAgent(BaseAgent):
                 action_type=ActionType.WEBHOOK_CREATE,
                 component="webhooks",
                 phase=Phase.INTEGRATIONS,
-                description=f"Create webhook: {webhook.get('url', 'webhook')[:50]}",
+                description=f"Create webhook: {webhook.get('url', 'webhook')[:60]}{'...' if len(webhook.get('url', '')) > 60 else ''}",
                 parameters={
                     "target_repo": generator.github_target,
                     "url": webhook.get("url"),
