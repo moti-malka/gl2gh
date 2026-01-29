@@ -7,6 +7,9 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectWizardPage } from './pages/ProjectWizardPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { RunCreationPage } from './pages/RunCreationPage';
+import { RunDashboardPage } from './pages/RunDashboardPage';
 import './App.css';
 
 function App() {
@@ -79,6 +82,30 @@ function AppContent() {
             element={
               <ProtectedRoute requireRole="operator">
                 <ProjectWizardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:id"
+            element={
+              <ProtectedRoute>
+                <ProjectDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:projectId/runs/new"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <RunCreationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/runs/:runId"
+            element={
+              <ProtectedRoute>
+                <RunDashboardPage />
               </ProtectedRoute>
             }
           />
