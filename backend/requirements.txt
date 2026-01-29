@@ -1,0 +1,45 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+motor==3.3.2
+pymongo==4.6.1
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# Job Queue
+celery==5.3.4
+redis==5.0.1
+
+# HTTP client for agents
+httpx==0.26.0
+requests==2.31.0
+
+# Validation and schemas
+pydantic==2.5.3
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# Encryption
+cryptography==41.0.7
+
+# JSON and YAML
+jsonschema==4.20.0
+PyYAML==6.0.1
+
+# WebSocket support
+websockets==12.0
+
+# Logging
+python-json-logger==2.0.7
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+httpx==0.26.0

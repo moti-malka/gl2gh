@@ -88,3 +88,17 @@ test-out-*/
 *.key
 secrets.yaml
 secrets.json
+
+# Platform specific
+artifacts/**/*
+!artifacts/.gitkeep
+.env
+.env.local
+
+# Node modules
+frontend/node_modules/
+frontend/build/
+
+# Docker volumes
+mongo-data/
+redis-data/
