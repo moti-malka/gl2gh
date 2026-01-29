@@ -2,12 +2,22 @@
 
 import os
 from typing import Optional
-from agent_framework.azure import AzureAIClient
-from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
 from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Lazy import for Azure dependencies (optional)
+try:
+    from agent_framework.azure import AzureAIClient
+    from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
+    AZURE_AI_AVAILABLE = True
+except ImportError:
+    logger.warning("Azure AI packages not available. Install with: pip install agent-framework-azure-ai azure-identity")
+    AzureAIClient = None
+    AzureCliCredential = None
+    DefaultAzureCredential = None
+    AZURE_AI_AVAILABLE = False
 
 
 class AgentClientFactory:
@@ -24,7 +34,7 @@ class AgentClientFactory:
     _credential: Optional[any] = None
     
     @classmethod
-    async def get_azure_ai_client(cls) -> Optional[AzureAIClient]:
+    async def get_azure_ai_client(cls):
         """
         Get or create Azure AI client for MAF agents.
         
@@ -41,6 +51,10 @@ class AgentClientFactory:
             - AZURE_CLIENT_ID
             - AZURE_CLIENT_SECRET
         """
+        if not AZURE_AI_AVAILABLE:
+            logger.info("Azure AI packages not installed, agents will run in local mode")
+            return None
+        
         if not settings.AZURE_AI_PROJECT_ENDPOINT or not settings.AZURE_AI_MODEL_DEPLOYMENT_NAME:
             logger.info("Azure AI not configured, agents will run in local mode")
             return None
