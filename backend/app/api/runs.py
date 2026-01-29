@@ -3,11 +3,14 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+from pathlib import Path
+import json
 
 from app.models import User
 from app.services import RunService, ArtifactService
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
+from app.workers.tasks import run_apply, run_verify
 
 router = APIRouter()
 
@@ -21,6 +24,16 @@ class RunCreate(BaseModel):
 
 class ResumeRequest(BaseModel):
     from_stage: Optional[str] = None
+
+
+class ApplyRequest(BaseModel):
+    project_id: Optional[int] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+class VerifyRequest(BaseModel):
+    project_id: Optional[int] = None
+    config: Optional[Dict[str, Any]] = None
 
 
 class RunResponse(BaseModel):
@@ -211,38 +224,116 @@ async def get_run_plan(
     """Get migration plan for a run"""
     run = await check_run_access(run_id, current_user)
     
-    # TODO: Implement plan retrieval from artifacts
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Plan retrieval not yet implemented"
-    )
+    # Get plan artifacts
+    artifact_service = ArtifactService()
+    plan_artifacts = await artifact_service.list_artifacts(run_id, artifact_type="plan")
+    
+    if not plan_artifacts:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No plan artifacts found for this run"
+        )
+    
+    # Read the plan file content
+    # Artifacts are stored relative to artifact_root
+    if not run.artifact_root:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run has no artifact root configured"
+        )
+    
+    # Get the first plan artifact (there should typically be one plan per run)
+    plan_artifact = plan_artifacts[0]
+    plan_file_path = Path(run.artifact_root) / plan_artifact.path
+    
+    if not plan_file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Plan file not found at {plan_file_path}"
+        )
+    
+    try:
+        # Read and parse the plan file
+        with open(plan_file_path, 'r') as f:
+            plan_content = json.load(f)
+        return plan_content
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to parse plan file: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read plan file: {str(e)}"
+        )
 
 
 @router.post("/runs/{run_id}/apply")
 async def apply_run(
     run_id: str,
+    request: ApplyRequest = ApplyRequest(),
     current_user: User = Depends(require_operator)
 ):
     """Execute the migration plan (write to GitHub)"""
     run = await check_run_access(run_id, current_user)
     
-    # TODO: Implement apply logic (trigger Celery task)
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Apply not yet implemented"
-    )
+    # If project_id is not provided, we need to apply to all projects in the run
+    if request.project_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_id is required. Apply must be executed per project."
+        )
+    
+    # Prepare config
+    config = request.config or {}
+    
+    # Trigger Celery task for apply
+    try:
+        task = run_apply.delay(run_id, request.project_id, config)
+        return {
+            "message": "Apply started",
+            "run_id": run_id,
+            "project_id": request.project_id,
+            "task_id": task.id
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start apply task: {str(e)}"
+        )
 
 
 @router.post("/runs/{run_id}/verify")
 async def verify_run(
     run_id: str,
+    request: VerifyRequest = VerifyRequest(),
     current_user: User = Depends(require_operator)
 ):
     """Verify migration results"""
     run = await check_run_access(run_id, current_user)
     
-    # TODO: Implement verify logic (trigger Celery task)
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Verify not yet implemented"
-    )
+    # If project_id is not provided, we need to verify all projects in the run
+    if request.project_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_id is required. Verify must be executed per project."
+        )
+    
+    # Prepare config
+    config = request.config or {}
+    
+    # Trigger Celery task for verify
+    try:
+        task = run_verify.delay(run_id, request.project_id, config)
+        return {
+            "message": "Verification started",
+            "run_id": run_id,
+            "project_id": request.project_id,
+            "task_id": task.id
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start verify task: {str(e)}"
+        )

@@ -160,3 +160,129 @@ async def test_login_wrong_password(client):
     }
     response = await client.post("/api/auth/login", json=login_data)
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_run_plan_not_found(client):
+    """Test getting plan for a run with no plan artifacts"""
+    # Register and login
+    register_data = {
+        "username": "plantest",
+        "email": "plantest@example.com",
+        "password": "testpass123"
+    }
+    await client.post("/api/auth/register", json=register_data)
+    
+    login_data = {
+        "username": "plantest",
+        "password": "testpass123"
+    }
+    response = await client.post("/api/auth/login", json=login_data)
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create a project first
+    project_data = {
+        "name": "Plan Test Project",
+        "description": "Test project for plan endpoint"
+    }
+    response = await client.post("/api/projects", json=project_data, headers=headers)
+    assert response.status_code == 201
+    project_id = response.json()["id"]
+    
+    # Create a run
+    run_data = {
+        "mode": "PLAN_ONLY"
+    }
+    response = await client.post(f"/api/projects/{project_id}/runs", json=run_data, headers=headers)
+    assert response.status_code == 201
+    run_id = response.json()["id"]
+    
+    # Try to get plan (should fail - no plan artifacts)
+    response = await client.get(f"/api/runs/{run_id}/plan", headers=headers)
+    assert response.status_code == 404
+    assert "No plan artifacts found" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_apply_run_without_project_id(client):
+    """Test applying a run without specifying project_id"""
+    # Register and login
+    register_data = {
+        "username": "applytest",
+        "email": "applytest@example.com",
+        "password": "testpass123"
+    }
+    await client.post("/api/auth/register", json=register_data)
+    
+    login_data = {
+        "username": "applytest",
+        "password": "testpass123"
+    }
+    response = await client.post("/api/auth/login", json=login_data)
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create a project
+    project_data = {
+        "name": "Apply Test Project",
+        "description": "Test project for apply endpoint"
+    }
+    response = await client.post("/api/projects", json=project_data, headers=headers)
+    assert response.status_code == 201
+    project_id = response.json()["id"]
+    
+    # Create a run
+    run_data = {
+        "mode": "APPLY"
+    }
+    response = await client.post(f"/api/projects/{project_id}/runs", json=run_data, headers=headers)
+    assert response.status_code == 201
+    run_id = response.json()["id"]
+    
+    # Try to apply without project_id (should fail)
+    response = await client.post(f"/api/runs/{run_id}/apply", json={}, headers=headers)
+    assert response.status_code == 400
+    assert "project_id is required" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_verify_run_without_project_id(client):
+    """Test verifying a run without specifying project_id"""
+    # Register and login
+    register_data = {
+        "username": "verifytest",
+        "email": "verifytest@example.com",
+        "password": "testpass123"
+    }
+    await client.post("/api/auth/register", json=register_data)
+    
+    login_data = {
+        "username": "verifytest",
+        "password": "testpass123"
+    }
+    response = await client.post("/api/auth/login", json=login_data)
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create a project
+    project_data = {
+        "name": "Verify Test Project",
+        "description": "Test project for verify endpoint"
+    }
+    response = await client.post("/api/projects", json=project_data, headers=headers)
+    assert response.status_code == 201
+    project_id = response.json()["id"]
+    
+    # Create a run
+    run_data = {
+        "mode": "FULL"
+    }
+    response = await client.post(f"/api/projects/{project_id}/runs", json=run_data, headers=headers)
+    assert response.status_code == 201
+    run_id = response.json()["id"]
+    
+    # Try to verify without project_id (should fail)
+    response = await client.post(f"/api/runs/{run_id}/verify", json={}, headers=headers)
+    assert response.status_code == 400
+    assert "project_id is required" in response.json()["detail"]
