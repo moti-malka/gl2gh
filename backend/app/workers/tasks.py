@@ -1,6 +1,7 @@
 """Celery tasks using Microsoft Agent Framework agents"""
 
 import asyncio
+from datetime import datetime
 from app.workers.celery_app import celery_app
 from app.utils.logging import get_logger
 from app.agents import (
@@ -79,6 +80,12 @@ def run_discovery(run_id: str, config: dict):
     """
     Run discovery agent for a migration run using Microsoft Agent Framework.
     
+    Enhanced to:
+    - Detect all 14 component types
+    - Store results in MongoDB via ArtifactService
+    - Emit progress events via EventService
+    - Store discovered projects in run_projects collection
+    
     Args:
         run_id: Migration run ID
         config: Configuration for discovery
@@ -86,6 +93,13 @@ def run_discovery(run_id: str, config: dict):
     logger.info(f"Starting discovery for run {run_id}")
     
     try:
+        # Import services
+        from app.services import ArtifactService, EventService, RunService
+        from app.models import RunProject
+        from bson import ObjectId
+        from pathlib import Path
+        import json
+        
         # Create discovery agent
         agent = DiscoveryAgent()
         
@@ -93,22 +107,216 @@ def run_discovery(run_id: str, config: dict):
         config["run_id"] = run_id
         config["output_dir"] = config.get("output_dir", f"artifacts/runs/{run_id}/discovery")
         
-        # Run async agent in sync context
+        # Create output directory
+        Path(config["output_dir"]).mkdir(parents=True, exist_ok=True)
+        
+        # Create service instances
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
+            # Initialize services
+            artifact_service = ArtifactService()
+            event_service = EventService()
+            run_service = RunService()
+            
+            # Emit start event
+            loop.run_until_complete(
+                event_service.create_event(
+                    run_id=run_id,
+                    level="INFO",
+                    message="Discovery started",
+                    agent="DiscoveryAgent",
+                    scope="run"
+                )
+            )
+            
+            # Update run status
+            loop.run_until_complete(
+                run_service.update_run_status(
+                    run_id=run_id,
+                    status="RUNNING",
+                    stage="DISCOVER"
+                )
+            )
+            
+            # Run agent
             result = loop.run_until_complete(
                 agent.run_with_retry(config)
             )
+            
+            if result.get("status") == "success":
+                outputs = result.get("outputs", {})
+                discovered_projects = outputs.get("discovered_projects", [])
+                stats = outputs.get("stats", {})
+                
+                # Store artifacts in MongoDB
+                artifacts = result.get("artifacts", [])
+                for artifact_path in artifacts:
+                    artifact_path_obj = Path(artifact_path)
+                    artifact_type = artifact_path_obj.stem  # inventory, coverage, readiness, summary
+                    
+                    # Read file size
+                    size_bytes = artifact_path_obj.stat().st_size if artifact_path_obj.exists() else None
+                    
+                    # Store artifact metadata
+                    loop.run_until_complete(
+                        artifact_service.store_artifact(
+                            run_id=run_id,
+                            artifact_type=artifact_type,
+                            path=str(artifact_path_obj.relative_to(Path(f"artifacts/runs/{run_id}"))),
+                            size_bytes=size_bytes,
+                            metadata={"generated_by": "DiscoveryAgent"}
+                        )
+                    )
+                
+                # Store discovered projects as run_projects
+                from app.db import get_database
+                db = loop.run_until_complete(get_database())
+                
+                for project_data in discovered_projects:
+                    # Create RunProject document
+                    run_project = {
+                        "run_id": ObjectId(run_id),
+                        "gitlab_project_id": project_data["id"],
+                        "path_with_namespace": project_data["path_with_namespace"],
+                        "facts": {
+                            "name": project_data["name"],
+                            "description": project_data.get("description"),
+                            "visibility": project_data.get("visibility"),
+                            "archived": project_data.get("archived"),
+                            "default_branch": project_data.get("default_branch"),
+                            "components": project_data.get("components", {})
+                        },
+                        "readiness": {},  # Will be populated later
+                        "stage_status": {
+                            "discover": "DONE",
+                            "export": "PENDING",
+                            "transform": "PENDING",
+                            "plan": "PENDING",
+                            "apply": "PENDING",
+                            "verify": "PENDING"
+                        },
+                        "errors": project_data.get("errors", []),
+                        "created_at": datetime.utcnow(),
+                        "updated_at": datetime.utcnow()
+                    }
+                    
+                    # Insert or update
+                    loop.run_until_complete(
+                        db["run_projects"].update_one(
+                            {
+                                "run_id": ObjectId(run_id),
+                                "gitlab_project_id": project_data["id"]
+                            },
+                            {"$set": run_project},
+                            upsert=True
+                        )
+                    )
+                
+                # Update run stats
+                loop.run_until_complete(
+                    run_service.update_run_stats(
+                        run_id=run_id,
+                        stats_updates=stats
+                    )
+                )
+                
+                # Set artifact root
+                loop.run_until_complete(
+                    run_service.set_artifact_root(
+                        run_id=run_id,
+                        artifact_root=f"artifacts/runs/{run_id}"
+                    )
+                )
+                
+                # Emit completion event
+                loop.run_until_complete(
+                    event_service.create_event(
+                        run_id=run_id,
+                        level="INFO",
+                        message=f"Discovery completed: {stats.get('projects', 0)} projects discovered",
+                        agent="DiscoveryAgent",
+                        scope="run",
+                        payload=stats
+                    )
+                )
+                
+                # Update run status
+                loop.run_until_complete(
+                    run_service.update_run_status(
+                        run_id=run_id,
+                        status="COMPLETED",
+                        stage="DISCOVER"
+                    )
+                )
+                
+                logger.info(f"Discovery completed for run {run_id}: {stats}")
+                return result
+            else:
+                # Handle failure
+                error_msg = result.get("error", "Unknown error")
+                
+                # Emit error event
+                loop.run_until_complete(
+                    event_service.create_event(
+                        run_id=run_id,
+                        level="ERROR",
+                        message=f"Discovery failed: {error_msg}",
+                        agent="DiscoveryAgent",
+                        scope="run"
+                    )
+                )
+                
+                # Update run status
+                loop.run_until_complete(
+                    run_service.update_run_status(
+                        run_id=run_id,
+                        status="FAILED",
+                        stage="DISCOVER",
+                        error={"message": error_msg}
+                    )
+                )
+                
+                return result
         finally:
             loop.close()
         
-        logger.info(f"Discovery completed for run {run_id}")
-        return result
-        
     except Exception as e:
         logger.error(f"Discovery failed for run {run_id}: {str(e)}")
+        
+        # Try to emit error event
+        try:
+            from app.services import EventService, RunService
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            event_service = EventService()
+            run_service = RunService()
+            
+            loop.run_until_complete(
+                event_service.create_event(
+                    run_id=run_id,
+                    level="ERROR",
+                    message=f"Discovery task exception: {str(e)}",
+                    agent="DiscoveryAgent",
+                    scope="run"
+                )
+            )
+            
+            loop.run_until_complete(
+                run_service.update_run_status(
+                    run_id=run_id,
+                    status="FAILED",
+                    stage="DISCOVER",
+                    error={"message": str(e)}
+                )
+            )
+            
+            loop.close()
+        except Exception as inner_e:
+            logger.error(f"Failed to emit error event: {str(inner_e)}")
+        
         return {"status": "failed", "error": str(e), "run_id": run_id}
 
 
