@@ -119,8 +119,15 @@ class DiscoveryAgent(BaseAgent):
             
             # Initialize GitLab client
             with GitLabClient(inputs["gitlab_url"], inputs["gitlab_token"]) as client:
-                # Discover projects
-                projects_data = await self._discover_projects(client, inputs)
+                # Discover projects (run in executor since GitLabClient is synchronous)
+                import asyncio
+                loop = asyncio.get_event_loop()
+                projects_data = await loop.run_in_executor(
+                    None,
+                    self._discover_projects,
+                    client,
+                    inputs
+                )
                 
                 # Generate enhanced outputs
                 inventory = self._generate_inventory(projects_data, inputs)
@@ -196,24 +203,24 @@ class DiscoveryAgent(BaseAgent):
         discovered_projects = []
         
         # Get projects
-        if inputs.get("root_group"):
-            # Scan specific group
-            try:
+        try:
+            if inputs.get("root_group"):
+                # Scan specific group
                 group_id = inputs["root_group"]
                 projects = client.list_group_projects(group_id)
                 self.log_event("INFO", f"Found {len(projects)} projects in group {group_id}")
-            except Exception as e:
-                self.log_event("ERROR", f"Failed to list group projects: {str(e)}")
-                projects = []
-        else:
-            # Scan all accessible projects
-            projects = client.list_projects()
-            self.log_event("INFO", f"Found {len(projects)} accessible projects")
+            else:
+                # Scan all accessible projects
+                projects = client.list_projects()
+                self.log_event("INFO", f"Found {len(projects)} accessible projects")
+        except Exception as e:
+            self.log_event("ERROR", f"Failed to list projects: {str(e)}")
+            return []
         
         # Detect components for each project
         for project in projects:
             try:
-                project_data = await self._detect_project_components(client, project)
+                project_data = self._detect_project_components(client, project)
                 discovered_projects.append(project_data)
                 
                 self.log_event("INFO", f"Scanned project: {project_data['path_with_namespace']}")
@@ -229,7 +236,7 @@ class DiscoveryAgent(BaseAgent):
         
         return discovered_projects
     
-    async def _detect_project_components(self, client: GitLabClient, project: Dict[str, Any]) -> Dict[str, Any]:
+    def _detect_project_components(self, client: GitLabClient, project: Dict[str, Any]) -> Dict[str, Any]:
         """
         Detect all 14 component types for a project.
         
@@ -659,9 +666,13 @@ class DiscoveryAgent(BaseAgent):
         total_issues = issues.get("opened_count", 0)
         total_mrs = mrs.get("opened_count", 0)
         
-        if total_issues > 50 or total_mrs > 20:
+        if total_issues > 100 or total_mrs > 50:
             complexity = "high"
             notes.append(f"High activity ({total_issues} issues, {total_mrs} MRs) - review migration strategy")
+        elif total_issues > 30 or total_mrs > 15:
+            if complexity == "low":
+                complexity = "medium"
+            notes.append(f"Moderate activity ({total_issues} issues, {total_mrs} MRs)")
         
         # Check for packages
         packages = components.get("packages", {})

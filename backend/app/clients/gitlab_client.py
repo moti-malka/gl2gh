@@ -198,7 +198,7 @@ class GitLabClient:
         try:
             self.get_file_content(project_id, ".gitlab-ci.yml")
             return True
-        except:
+        except Exception:
             return False
     
     def get_ci_config(self, project_id: int) -> Optional[str]:
@@ -208,7 +208,7 @@ class GitLabClient:
             import base64
             content = base64.b64decode(file_data['content']).decode('utf-8')
             return content
-        except:
+        except Exception:
             return None
     
     def list_pipelines(self, project_id: int, max_pages: int = 1) -> List[Dict[str, Any]]:
@@ -259,7 +259,7 @@ class GitLabClient:
             import base64
             content = base64.b64decode(content_data['content']).decode('utf-8')
             return 'filter=lfs' in content
-        except:
+        except Exception:
             pass
         
         # Check project statistics
@@ -268,7 +268,7 @@ class GitLabClient:
             stats = project.get('statistics', {})
             lfs_size = stats.get('lfs_objects_size', 0)
             return lfs_size > 0
-        except:
+        except Exception:
             return False
     
     # Package registry APIs
