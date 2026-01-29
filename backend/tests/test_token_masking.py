@@ -28,6 +28,9 @@ def test_sanitize_project_settings_with_gitlab_token():
         }
     }
     
+    # Store original token for verification
+    original_gitlab_token = settings["gitlab"]["token"]
+    
     sanitized = sanitize_project_settings(settings)
     
     # Check GitLab token is masked
@@ -38,6 +41,10 @@ def test_sanitize_project_settings_with_gitlab_token():
     
     # Check GitHub settings are preserved
     assert sanitized["github"]["org"] == "myorg"
+    
+    # Verify original settings are not mutated
+    assert settings["gitlab"]["token"] == original_gitlab_token
+    assert "token_last4" not in settings["gitlab"]
 
 
 def test_sanitize_project_settings_with_github_token():
@@ -52,6 +59,9 @@ def test_sanitize_project_settings_with_github_token():
         }
     }
     
+    # Store original token for verification
+    original_github_token = settings["github"]["token"]
+    
     sanitized = sanitize_project_settings(settings)
     
     # Check GitHub token is masked
@@ -59,6 +69,10 @@ def test_sanitize_project_settings_with_github_token():
     assert "token_last4" in sanitized["github"]
     assert sanitized["github"]["token_last4"] == "abcd"
     assert sanitized["github"]["org"] == "myorg"
+    
+    # Verify original settings are not mutated
+    assert settings["github"]["token"] == original_github_token
+    assert "token_last4" not in settings["github"]
 
 
 def test_sanitize_project_settings_with_both_tokens():
@@ -77,6 +91,10 @@ def test_sanitize_project_settings_with_both_tokens():
         }
     }
     
+    # Store original tokens for verification
+    original_gitlab_token = settings["gitlab"]["token"]
+    original_github_token = settings["github"]["token"]
+    
     sanitized = sanitize_project_settings(settings)
     
     # Check GitLab token is masked
@@ -89,6 +107,12 @@ def test_sanitize_project_settings_with_both_tokens():
     
     # Check other settings are preserved
     assert sanitized["budgets"]["max_api_calls"] == 5000
+    
+    # Verify original settings are not mutated
+    assert settings["gitlab"]["token"] == original_gitlab_token
+    assert settings["github"]["token"] == original_github_token
+    assert "token_last4" not in settings["gitlab"]
+    assert "token_last4" not in settings["github"]
 
 
 def test_sanitize_project_settings_with_no_tokens():

@@ -7,6 +7,7 @@ from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 import base64
 import hashlib
+import copy
 from app.config import settings
 
 # Password hashing
@@ -101,26 +102,23 @@ def sanitize_project_settings(settings: dict) -> dict:
     Returns:
         Sanitized settings with tokens masked showing only last 4 characters
     """
-    sanitized = settings.copy()
+    # Use deep copy to ensure complete isolation from original settings
+    sanitized = copy.deepcopy(settings)
     
     # Sanitize GitLab settings
     if "gitlab" in sanitized and isinstance(sanitized["gitlab"], dict):
-        gitlab = sanitized["gitlab"].copy()
-        if "token" in gitlab:
-            token = gitlab["token"]
+        if "token" in sanitized["gitlab"]:
+            token = sanitized["gitlab"]["token"]
             # Replace full token with token_last4
-            del gitlab["token"]
-            gitlab["token_last4"] = get_token_last4(token)
-        sanitized["gitlab"] = gitlab
+            del sanitized["gitlab"]["token"]
+            sanitized["gitlab"]["token_last4"] = get_token_last4(token)
     
     # Sanitize GitHub settings
     if "github" in sanitized and isinstance(sanitized["github"], dict):
-        github = sanitized["github"].copy()
-        if "token" in github:
-            token = github["token"]
+        if "token" in sanitized["github"]:
+            token = sanitized["github"]["token"]
             # Replace full token with token_last4
-            del github["token"]
-            github["token_last4"] = get_token_last4(token)
-        sanitized["github"] = github
+            del sanitized["github"]["token"]
+            sanitized["github"]["token_last4"] = get_token_last4(token)
     
     return sanitized
