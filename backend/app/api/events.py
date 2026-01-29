@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 from app.models import User
-from app.services import EventService, RunService, ProjectService
+from app.services import EventService
 from app.api.dependencies import require_operator
+from app.api.utils import check_run_access
 
 router = APIRouter()
 
@@ -21,37 +22,6 @@ class EventResponse(BaseModel):
     gitlab_project_id: Optional[int]
     message: str
     payload: Dict[str, Any]
-
-
-async def check_run_access(run_id: str, current_user: User):
-    """Check if user has access to run"""
-    run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    project_service = ProjectService()
-    project = await project_service.get_project(str(run.project_id))
-    
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
-        )
-    
-    # Check access: admin can see all, others only their own
-    if current_user.role != "admin" and str(project.created_by) != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    return run
 
 
 @router.get("/{run_id}/events", response_model=List[EventResponse])

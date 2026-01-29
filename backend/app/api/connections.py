@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from app.models import User
-from app.services import ConnectionService, ProjectService
+from app.services import ConnectionService
 from app.api.dependencies import require_operator
+from app.api.utils import check_project_access
 
 router = APIRouter()
 
@@ -23,27 +24,6 @@ class ConnectionResponse(BaseModel):
     base_url: Optional[str]
     token_last4: str
     created_at: str
-
-
-async def check_project_access(project_id: str, current_user: User):
-    """Check if user has access to project"""
-    project_service = ProjectService()
-    project = await project_service.get_project(project_id)
-    
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found"
-        )
-    
-    # Check access: admin can see all, others only their own
-    if current_user.role != "admin" and str(project.created_by) != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    return project
 
 
 @router.post("/{project_id}/connections/gitlab", response_model=ConnectionResponse, status_code=status.HTTP_201_CREATED)

@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 from app.models import User
-from app.services import RunService, ProjectService, ArtifactService
+from app.services import RunService, ArtifactService
 from app.api.dependencies import require_operator
+from app.api.utils import check_project_access, check_run_access
 
 router = APIRouter()
 
@@ -41,27 +42,6 @@ class ArtifactResponse(BaseModel):
     size_bytes: Optional[int]
     created_at: str
     metadata: Dict[str, Any]
-
-
-async def check_project_access(project_id: str, current_user: User):
-    """Check if user has access to project"""
-    project_service = ProjectService()
-    project = await project_service.get_project(project_id)
-    
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found"
-        )
-    
-    # Check access: admin can see all, others only their own
-    if current_user.role != "admin" and str(project.created_by) != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    return project
 
 
 @router.post("/projects/{project_id}/runs", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
@@ -142,17 +122,7 @@ async def get_run(
     current_user: User = Depends(require_operator)
 ):
     """Get a specific run"""
-    run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
+    run = await check_run_access(run_id, current_user)
     
     return RunResponse(
         id=str(run.id),
@@ -173,18 +143,9 @@ async def cancel_run(
     current_user: User = Depends(require_operator)
 ):
     """Cancel a running migration"""
+    run = await check_run_access(run_id, current_user)
+    
     run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
-    
     cancelled_run = await run_service.cancel_run(run_id)
     if not cancelled_run:
         raise HTTPException(
@@ -198,23 +159,14 @@ async def cancel_run(
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
     run_id: str,
-    resume_request: Optional[ResumeRequest] = None,
+    resume_request: ResumeRequest = ResumeRequest(),
     current_user: User = Depends(require_operator)
 ):
     """Resume a failed or cancelled run"""
+    run = await check_run_access(run_id, current_user)
+    
     run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
-    
-    from_stage = resume_request.from_stage if resume_request else None
+    from_stage = resume_request.from_stage
     resumed_run = await run_service.resume_run(run_id, from_stage)
     
     if not resumed_run:
@@ -233,17 +185,7 @@ async def get_run_artifacts(
     current_user: User = Depends(require_operator)
 ):
     """Get artifacts for a run"""
-    run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
+    run = await check_run_access(run_id, current_user)
     
     artifact_service = ArtifactService()
     artifacts = await artifact_service.list_artifacts(run_id, artifact_type=artifact_type)
@@ -267,17 +209,7 @@ async def get_run_plan(
     current_user: User = Depends(require_operator)
 ):
     """Get migration plan for a run"""
-    run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
+    run = await check_run_access(run_id, current_user)
     
     # TODO: Implement plan retrieval from artifacts
     raise HTTPException(
@@ -292,17 +224,7 @@ async def apply_run(
     current_user: User = Depends(require_operator)
 ):
     """Execute the migration plan (write to GitHub)"""
-    run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
+    run = await check_run_access(run_id, current_user)
     
     # TODO: Implement apply logic (trigger Celery task)
     raise HTTPException(
@@ -317,17 +239,7 @@ async def verify_run(
     current_user: User = Depends(require_operator)
 ):
     """Verify migration results"""
-    run_service = RunService()
-    run = await run_service.get_run(run_id)
-    
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
-    
-    # Check project access
-    await check_project_access(str(run.project_id), current_user)
+    run = await check_run_access(run_id, current_user)
     
     # TODO: Implement verify logic (trigger Celery task)
     raise HTTPException(

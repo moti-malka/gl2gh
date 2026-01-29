@@ -13,7 +13,7 @@ class PyObjectId(ObjectId):
     def __get_pydantic_core_schema__(cls, source_type, handler):
         from pydantic_core import core_schema
         
-        def validate_object_id(value, handler):
+        def validate_object_id(value, info=None):
             if isinstance(value, ObjectId):
                 return value
             if isinstance(value, str):
