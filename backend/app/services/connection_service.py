@@ -180,6 +180,11 @@ class ConnectionService(BaseService):
         """
         Create a Connection object from project settings
         
+        Note: Tokens in project settings are stored in plaintext in the database.
+        This creates a pseudo-Connection object for API compatibility, encrypting
+        the token in-memory for the Connection object. For better security, 
+        consider migrating to the connections collection which stores encrypted tokens.
+        
         Args:
             project_id: Project ID
             conn_type: Connection type (gitlab or github)
@@ -194,13 +199,22 @@ class ConnectionService(BaseService):
             if not token:
                 return None
             
-            # Extract base_url if present
+            # Extract base_url - check both "url" and "base_url" for compatibility
+            # with different ways project settings might store this field
             base_url = settings.get("url") or settings.get("base_url")
             
-            # Create a pseudo-connection object (without actual database ID)
-            # Note: We use a fake ObjectId as placeholder since these aren't in the connections collection
+            # Generate a deterministic ID based on project_id and type
+            # This ensures the same settings-based connection has a stable ID across requests
+            # Format: first 12 bytes of project_id + 12 bytes derived from type
+            import hashlib
+            type_hash = hashlib.md5(conn_type.encode()).hexdigest()[:24]
+            # Create a stable ObjectId from project_id and type
+            stable_id_str = str(project_id)[:12] + type_hash[:12]
+            stable_id = ObjectId(stable_id_str)
+            
+            # Create a pseudo-connection object (not stored in connections collection)
             connection_dict = {
-                "_id": ObjectId(),  # Temporary ID for response serialization
+                "_id": stable_id,  # Deterministic ID for stable API responses
                 "project_id": ObjectId(project_id),
                 "type": conn_type,
                 "base_url": base_url,
@@ -213,7 +227,10 @@ class ConnectionService(BaseService):
             return Connection(**connection_dict)
             
         except Exception as e:
-            self.logger.warning(f"Error creating connection from settings: {e}")
+            self.logger.warning(
+                f"Error creating connection from settings for project {project_id}, "
+                f"type {conn_type}: {e}"
+            )
             return None
     
     async def get_connection_by_type(self, project_id: str, conn_type: str) -> Optional[Connection]:
@@ -261,12 +278,16 @@ class ConnectionService(BaseService):
             self.logger.error(f"Database error fetching {conn_type} connection for project {project_id}: {e}")
             return None
     
-    async def get_decrypted_token(self, connection_id: str) -> Optional[str]:
+    async def get_decrypted_token(self, connection_id: str, project_id: Optional[str] = None) -> Optional[str]:
         """
         Get decrypted token from connection
         
+        Supports both connections from the connections collection and settings-based connections.
+        For better performance when retrieving settings-based connection tokens, provide project_id.
+        
         Args:
             connection_id: Connection ID
+            project_id: Optional project ID (improves lookup for settings-based connections)
             
         Returns:
             Decrypted token if found, None otherwise
@@ -275,11 +296,35 @@ class ConnectionService(BaseService):
             if not ObjectId.is_valid(connection_id):
                 return None
             
+            # First try to find in connections collection
             conn_dict = await self.db[self.COLLECTION].find_one({"_id": ObjectId(connection_id)})
             if conn_dict:
                 token = decrypt_token(conn_dict["token_encrypted"])
                 self.logger.debug(f"Decrypted token for connection {connection_id}")
                 return token
+            
+            # If not found and project_id is provided, check project settings
+            if project_id and ObjectId.is_valid(project_id):
+                project_dict = await self.db["projects"].find_one({"_id": ObjectId(project_id)})
+                if project_dict:
+                    project = MigrationProject(**project_dict)
+                    
+                    # Check if this connection_id matches a settings-based connection
+                    # Generate the deterministic IDs for comparison
+                    import hashlib
+                    
+                    if project.settings.gitlab and project.settings.gitlab.get("token"):
+                        gitlab_type_hash = hashlib.md5("gitlab".encode()).hexdigest()[:24]
+                        gitlab_id_str = project_id[:12] + gitlab_type_hash[:12]
+                        if gitlab_id_str == connection_id:
+                            return project.settings.gitlab["token"]
+                    
+                    if project.settings.github and project.settings.github.get("token"):
+                        github_type_hash = hashlib.md5("github".encode()).hexdigest()[:24]
+                        github_id_str = project_id[:12] + github_type_hash[:12]
+                        if github_id_str == connection_id:
+                            return project.settings.github["token"]
+            
             return None
             
         except PyMongoError as e:
@@ -291,7 +336,12 @@ class ConnectionService(BaseService):
     
     async def delete_connection(self, connection_id: str) -> bool:
         """
-        Delete connection
+        Delete connection from connections collection
+        
+        Note: This only deletes connections stored in the connections collection.
+        Connections returned from project settings (identified by deterministic IDs
+        generated from project_id + type) cannot be deleted via this method.
+        To remove settings-based connections, update the project settings directly.
         
         Args:
             connection_id: Connection ID
@@ -308,6 +358,12 @@ class ConnectionService(BaseService):
             if result.deleted_count > 0:
                 self.logger.info(f"Deleted connection: {connection_id}")
                 return True
+            
+            # If not found in collection, log that it might be a settings-based connection
+            self.logger.debug(
+                f"Connection {connection_id} not found in connections collection. "
+                "It may be a settings-based connection which cannot be deleted via this method."
+            )
             return False
             
         except PyMongoError as e:
