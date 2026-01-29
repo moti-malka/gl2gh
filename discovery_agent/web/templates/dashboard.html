@@ -1,0 +1,2399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitLab Migration Assessment</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0066FF;
+            --primary-dark: #0052CC;
+            --primary-light: #E6F0FF;
+            --success: #00875A;
+            --success-light: #E3FCEF;
+            --warning: #FF991F;
+            --warning-light: #FFF7E6;
+            --danger: #DE350B;
+            --danger-light: #FFEBE6;
+            --neutral-0: #FFFFFF;
+            --neutral-10: #FAFBFC;
+            --neutral-20: #F4F5F7;
+            --neutral-30: #EBECF0;
+            --neutral-40: #DFE1E6;
+            --neutral-50: #C1C7D0;
+            --neutral-60: #B3BAC5;
+            --neutral-70: #A5ADBA;
+            --neutral-80: #97A0AF;
+            --neutral-100: #7A869A;
+            --neutral-200: #6B778C;
+            --neutral-300: #5E6C84;
+            --neutral-400: #505F79;
+            --neutral-500: #42526E;
+            --neutral-600: #344563;
+            --neutral-700: #253858;
+            --neutral-800: #172B4D;
+            --neutral-900: #091E42;
+            --shadow-sm: 0 1px 2px 0 rgba(9, 30, 66, 0.08);
+            --shadow-md: 0 4px 8px -2px rgba(9, 30, 66, 0.08), 0 0 1px rgba(9, 30, 66, 0.31);
+            --shadow-lg: 0 8px 16px -4px rgba(9, 30, 66, 0.08), 0 0 1px rgba(9, 30, 66, 0.31);
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--neutral-20);
+            color: var(--neutral-800);
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        /* Header */
+        .header {
+            background: var(--neutral-0);
+            border-bottom: 1px solid var(--neutral-30);
+            padding: 0 24px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--neutral-900);
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: var(--radius-sm);
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-secondary {
+            background: var(--neutral-20);
+            color: var(--neutral-600);
+            border: 1px solid var(--neutral-40);
+        }
+
+        .btn-secondary:hover {
+            background: var(--neutral-30);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #006644;
+        }
+
+        /* Main Layout */
+        .main-layout {
+            display: flex;
+            min-height: calc(100vh - 64px);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--neutral-0);
+            border-right: 1px solid var(--neutral-30);
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--neutral-30);
+        }
+
+        .sidebar-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--neutral-200);
+            margin-bottom: 4px;
+        }
+
+        .scan-list {
+            list-style: none;
+        }
+
+        .scan-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--neutral-30);
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .scan-item:hover {
+            background: var(--neutral-10);
+        }
+
+        .scan-item.active {
+            background: var(--primary-light);
+            border-left: 3px solid var(--primary);
+        }
+
+        .scan-name {
+            font-weight: 600;
+            color: var(--neutral-800);
+            margin-bottom: 4px;
+        }
+
+        .scan-meta {
+            font-size: 12px;
+            color: var(--neutral-200);
+        }
+
+        /* Content Area */
+        .content {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 80px 40px;
+            text-align: center;
+            color: var(--neutral-200);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.6;
+        }
+
+        .empty-state h3 {
+            font-size: 18px;
+            color: var(--neutral-600);
+            margin-bottom: 8px;
+        }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            gap: 24px;
+        }
+
+        /* Stats Row */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+        }
+
+        .stat-card {
+            background: var(--neutral-0);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--neutral-30);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--neutral-200);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--neutral-900);
+            line-height: 1.2;
+        }
+
+        .stat-value.primary { color: var(--primary); }
+        .stat-value.success { color: var(--success); }
+        .stat-value.warning { color: var(--warning); }
+        .stat-value.danger { color: var(--danger); }
+
+        .stat-sub {
+            font-size: 12px;
+            color: var(--neutral-200);
+            margin-top: 4px;
+        }
+
+        /* Hours Summary Card */
+        .hours-summary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            color: white;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+        }
+
+        .hours-block {
+            text-align: center;
+        }
+
+        .hours-label {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.85;
+            margin-bottom: 8px;
+        }
+
+        .hours-value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .hours-range {
+            font-size: 14px;
+            opacity: 0.85;
+            margin-top: 4px;
+        }
+
+        /* Confidence Distribution */
+        .confidence-dist {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .confidence-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .confidence-high { background: var(--success-light); color: var(--success); }
+        .confidence-medium { background: var(--warning-light); color: var(--warning); }
+        .confidence-low { background: var(--danger-light); color: var(--danger); }
+
+        /* Blockers Alert */
+        .blockers-alert {
+            background: var(--danger-light);
+            border: 1px solid #FFBDAD;
+            border-radius: var(--radius-md);
+            padding: 16px 20px;
+        }
+
+        .blockers-alert-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: var(--danger);
+            margin-bottom: 12px;
+        }
+
+        .blockers-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .blocker-tag {
+            background: var(--neutral-0);
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            color: var(--neutral-600);
+            border: 1px solid #FFBDAD;
+        }
+
+        /* Filters Section */
+        .filters-section {
+            background: var(--neutral-0);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--neutral-30);
+        }
+
+        .filters-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .filters-title {
+            font-weight: 600;
+            color: var(--neutral-700);
+        }
+
+        .filters-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--neutral-200);
+        }
+
+        .filter-input, .filter-select {
+            padding: 8px 12px;
+            border: 1px solid var(--neutral-40);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            color: var(--neutral-800);
+            background: var(--neutral-0);
+            min-width: 140px;
+        }
+
+        .filter-input:focus, .filter-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-light);
+        }
+
+        .filter-input::placeholder {
+            color: var(--neutral-100);
+        }
+
+        /* Table */
+        .table-section {
+            background: var(--neutral-0);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--neutral-30);
+            overflow: hidden;
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--neutral-30);
+        }
+
+        .table-title {
+            font-weight: 600;
+            color: var(--neutral-700);
+        }
+
+        .table-info {
+            font-size: 13px;
+            color: var(--neutral-200);
+        }
+
+        .projects-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .projects-table th {
+            text-align: left;
+            padding: 12px 16px;
+            background: var(--neutral-10);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--neutral-300);
+            border-bottom: 1px solid var(--neutral-30);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .projects-table th:hover {
+            background: var(--neutral-20);
+        }
+
+        .projects-table th.sorted-asc::after { content: " ↑"; }
+        .projects-table th.sorted-desc::after { content: " ↓"; }
+
+        .projects-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--neutral-30);
+            vertical-align: middle;
+        }
+
+        .projects-table tbody tr {
+            transition: background 0.1s ease;
+        }
+
+        .projects-table tbody tr:hover {
+            background: var(--neutral-10);
+        }
+
+        .projects-table tbody tr.expanded {
+            background: var(--primary-light);
+        }
+
+        .project-name {
+            font-weight: 500;
+            color: var(--primary);
+            cursor: pointer;
+        }
+
+        .project-name:hover {
+            text-decoration: underline;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: var(--radius-sm);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge-bucket-s { background: var(--success-light); color: var(--success); }
+        .badge-bucket-m { background: var(--warning-light); color: var(--warning); }
+        .badge-bucket-l { background: #FFF0E0; color: #FF8B00; }
+        .badge-bucket-xl { background: var(--danger-light); color: var(--danger); }
+
+        .badge-yes { background: var(--success-light); color: var(--success); }
+        .badge-no { background: var(--neutral-20); color: var(--neutral-200); }
+        .badge-unknown { background: var(--neutral-20); color: var(--neutral-100); }
+
+        .badge-active { background: var(--success-light); color: var(--success); }
+        .badge-archived { background: var(--neutral-20); color: var(--neutral-200); }
+
+        .badge-blockers { background: var(--danger-light); color: var(--danger); }
+
+        /* Hours cell */
+        .hours-cell {
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .hours-cell.low { color: var(--success); }
+        .hours-cell.medium { color: var(--warning); }
+        .hours-cell.high { color: var(--danger); }
+
+        .confidence-mini {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 6px;
+        }
+
+        .confidence-mini.high { background: var(--success); }
+        .confidence-mini.medium { background: var(--warning); }
+        .confidence-mini.low { background: var(--danger); }
+
+        /* AI Badge */
+        .ai-badge {
+            display: inline-block;
+            margin-left: 8px;
+            font-size: 12px;
+            cursor: help;
+            opacity: 0.8;
+            transition: opacity 0.15s ease;
+        }
+        
+        .ai-badge:hover {
+            opacity: 1;
+        }
+
+        /* Project Details Row */
+        .project-details {
+            display: none;
+        }
+
+        .project-details.visible {
+            display: table-row;
+        }
+
+        .project-details td {
+            padding: 0;
+            background: var(--neutral-10);
+        }
+
+        .details-content {
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 900px) {
+            .details-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .details-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .detail-card {
+            background: var(--neutral-0);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            border: 1px solid var(--neutral-30);
+        }
+
+        .detail-card-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            color: var(--neutral-700);
+            margin-bottom: 8px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .detail-list {
+            list-style: none;
+        }
+
+        .detail-list li {
+            padding: 4px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--neutral-20);
+            font-size: 12px;
+        }
+
+        .detail-list li:last-child {
+            border-bottom: none;
+        }
+
+        .detail-list li strong {
+            color: var(--neutral-300);
+            font-weight: 500;
+        }
+
+        .detail-list li span {
+            color: var(--neutral-700);
+        }
+
+        /* Compact inline info */
+        .info-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            font-size: 12px;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .info-item strong {
+            color: var(--neutral-400);
+        }
+
+        /* Integration Grid */
+        .integration-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .integration-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: var(--neutral-10);
+            border-radius: var(--radius-sm);
+            font-size: 11px;
+        }
+
+        .integration-item.active {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .integration-item.warning {
+            background: var(--warning-light);
+            color: var(--warning);
+        }
+
+        /* Drivers and Blockers */
+        .drivers-list, .blockers-list, .unknowns-list {
+            list-style: none;
+        }
+
+        .drivers-list li, .blockers-list li, .unknowns-list li {
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+        }
+
+        .drivers-list li {
+            background: var(--neutral-10);
+            border-left: 3px solid var(--primary);
+        }
+
+        /* Driver items with explanations */
+        .driver-with-tooltip {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: help;
+        }
+
+        .driver-text {
+            flex: 1;
+        }
+
+        .driver-info {
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 14px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .driver-info:hover {
+            opacity: 1;
+        }
+
+        .driver-with-tooltip:hover {
+            background: var(--neutral-30);
+        }
+
+        .blockers-list li {
+            background: var(--danger-light);
+            border-left: 3px solid var(--danger);
+            color: var(--danger);
+        }
+
+        .unknowns-list li {
+            background: var(--warning-light);
+            border-left: 3px solid var(--warning);
+            color: var(--neutral-600);
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-top: 1px solid var(--neutral-30);
+        }
+
+        .pagination-info {
+            font-size: 13px;
+            color: var(--neutral-200);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: 4px;
+        }
+
+        .pagination-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--neutral-40);
+            background: var(--neutral-0);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            cursor: pointer;
+            color: var(--neutral-600);
+        }
+
+        .pagination-btn:hover:not(:disabled) {
+            background: var(--neutral-20);
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--neutral-30);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Export Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(9, 30, 66, 0.54);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--neutral-0);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+            width: 100%;
+            max-width: 480px;
+            padding: 24px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--neutral-900);
+            margin-bottom: 16px;
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .export-option {
+            padding: 16px;
+            border: 1px solid var(--neutral-40);
+            border-radius: var(--radius-md);
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .export-option:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .export-option-title {
+            font-weight: 600;
+            color: var(--neutral-800);
+            margin-bottom: 4px;
+        }
+
+        .export-option-desc {
+            font-size: 13px;
+            color: var(--neutral-200);
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        /* SOW Modal - Large */
+        .modal-large {
+            max-width: 900px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-large .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            max-height: calc(90vh - 200px);
+        }
+
+        /* Project Selection */
+        .project-selection-header {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .project-search {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 12px;
+            border: 1px solid var(--neutral-40);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+        }
+
+        .project-search:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-light);
+        }
+
+        .selection-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .project-list-container {
+            border: 1px solid var(--neutral-40);
+            border-radius: var(--radius-md);
+            max-height: 350px;
+            overflow-y: auto;
+        }
+
+        .project-select-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--neutral-30);
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .project-select-item:hover {
+            background: var(--neutral-10);
+        }
+
+        .project-select-item.selected {
+            background: var(--primary-light);
+        }
+
+        .project-select-item:last-child {
+            border-bottom: none;
+        }
+
+        .project-checkbox {
+            width: 18px;
+            height: 18px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .project-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .project-name {
+            font-weight: 500;
+            color: var(--neutral-800);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .project-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--neutral-200);
+            margin-top: 4px;
+        }
+
+        .project-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .selection-summary {
+            padding: 12px 16px;
+            background: var(--neutral-10);
+            border-radius: var(--radius-md);
+            margin-top: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .selection-stats {
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+        }
+
+        .selection-stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .selection-stat-label {
+            color: var(--neutral-200);
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .selection-stat-value {
+            font-weight: 600;
+            color: var(--neutral-800);
+        }
+
+        /* SOW Options */
+        .sow-options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .sow-option {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sow-option label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--neutral-300);
+        }
+
+        .sow-option input, .sow-option select {
+            padding: 8px 12px;
+            border: 1px solid var(--neutral-40);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+        }
+
+        .sow-option input:focus, .sow-option select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* Markdown Preview */
+        .markdown-preview {
+            background: var(--neutral-0);
+            border: 1px solid var(--neutral-40);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .markdown-preview h1 {
+            font-size: 24px;
+            border-bottom: 2px solid var(--neutral-30);
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+
+        .markdown-preview h2 {
+            font-size: 18px;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            color: var(--neutral-800);
+        }
+
+        .markdown-preview h3 {
+            font-size: 15px;
+            margin-top: 16px;
+            margin-bottom: 8px;
+            color: var(--neutral-700);
+        }
+
+        .markdown-preview p {
+            margin-bottom: 12px;
+        }
+
+        .markdown-preview ul, .markdown-preview ol {
+            margin-left: 24px;
+            margin-bottom: 12px;
+        }
+
+        .markdown-preview li {
+            margin-bottom: 4px;
+        }
+
+        .markdown-preview table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 13px;
+        }
+
+        .markdown-preview th, .markdown-preview td {
+            padding: 8px 12px;
+            border: 1px solid var(--neutral-40);
+            text-align: left;
+        }
+
+        .markdown-preview th {
+            background: var(--neutral-20);
+            font-weight: 600;
+        }
+
+        .markdown-preview tr:nth-child(even) {
+            background: var(--neutral-10);
+        }
+
+        .markdown-preview code {
+            background: var(--neutral-20);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 13px;
+        }
+
+        .markdown-preview hr {
+            border: none;
+            border-top: 1px solid var(--neutral-30);
+            margin: 24px 0;
+        }
+
+        .markdown-preview strong {
+            font-weight: 600;
+        }
+
+        .sow-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            border-radius: var(--radius-lg);
+        }
+
+        .loading-text {
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--neutral-400);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .hours-summary {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">📊</div>
+            <span>Migration Assessment</span>
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-primary" onclick="showSOWModal()" id="btn-generate-sow" style="display: none;">
+                📝 Generate SOW
+            </button>
+            <button class="btn btn-secondary" onclick="showExportModal()">
+                📥 Export
+            </button>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">Scans (<span id="scan-count">0</span>)</div>
+            </div>
+            <ul class="scan-list" id="scan-list">
+                <li class="loading"><div class="spinner"></div></li>
+            </ul>
+        </aside>
+
+        <main class="content" id="main-content">
+            <div class="empty-state">
+                <div class="empty-state-icon">📋</div>
+                <h3>Select a scan to view details</h3>
+                <p>Choose a scan from the list to see the migration assessment</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal-overlay" id="export-modal">
+        <div class="modal">
+            <div class="modal-title">Export Report</div>
+            <div class="modal-body">
+                <div class="export-option" onclick="exportCSV('summary')">
+                    <div class="export-option-title">📄 Summary CSV</div>
+                    <div class="export-option-desc">Project list with hours estimates and buckets</div>
+                </div>
+                <div class="export-option" onclick="exportCSV('detailed')">
+                    <div class="export-option-title">📊 Detailed CSV</div>
+                    <div class="export-option-desc">Full details including all metrics and blockers</div>
+                </div>
+                <div class="export-option" onclick="exportJSON()">
+                    <div class="export-option-title">📋 Full JSON</div>
+                    <div class="export-option-desc">Complete inventory data in JSON format</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideExportModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SOW Generation Modal -->
+    <div class="modal-overlay" id="sow-modal">
+        <div class="modal modal-large" id="sow-modal-content">
+            <!-- Step 1: Project Selection -->
+            <div id="sow-step-select" style="display: block;">
+                <div class="modal-title">📝 Generate Statement of Work</div>
+                <div class="modal-body">
+                    <div class="project-selection-header">
+                        <input type="text" class="project-search" id="sow-search" 
+                               placeholder="🔍 Search projects..." oninput="filterSOWProjects()">
+                        <div class="selection-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="selectAllSOWProjects()">Select All</button>
+                            <button class="btn btn-secondary btn-sm" onclick="clearSOWSelection()">Clear</button>
+                        </div>
+                    </div>
+                    
+                    <div class="project-list-container" id="sow-project-list">
+                        <!-- Projects rendered here -->
+                    </div>
+                    
+                    <div class="selection-summary">
+                        <div class="selection-stats">
+                            <div class="selection-stat">
+                                <span class="selection-stat-label">Selected</span>
+                                <span class="selection-stat-value" id="sow-selected-count">0</span>
+                            </div>
+                            <div class="selection-stat">
+                                <span class="selection-stat-label">Hours (Est.)</span>
+                                <span class="selection-stat-value" id="sow-selected-hours">0 - 0</span>
+                            </div>
+                            <div class="selection-stat">
+                                <span class="selection-stat-label">With CI</span>
+                                <span class="selection-stat-value" id="sow-selected-ci">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 20px;">
+                        <div style="font-weight: 600; margin-bottom: 12px; color: var(--neutral-700);">SOW Options</div>
+                        <div class="sow-options">
+                            <div class="sow-option">
+                                <label>Client Name</label>
+                                <input type="text" id="sow-client-name" placeholder="Client organization name">
+                            </div>
+                            <div class="sow-option">
+                                <label>Target GitHub Org</label>
+                                <input type="text" id="sow-github-org" placeholder="github.com/org-name">
+                            </div>
+                            <div class="sow-option">
+                                <label>Migration Mode</label>
+                                <select id="sow-migration-mode">
+                                    <option value="phased">Phased (recommended)</option>
+                                    <option value="bigbang">Big Bang</option>
+                                </select>
+                            </div>
+                            <div class="sow-option">
+                                <label>Start Date</label>
+                                <input type="date" id="sow-start-date">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="hideSOWModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="generateSOW()" id="btn-generate">
+                        Generate SOW →
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Step 2: Preview -->
+            <div id="sow-step-preview" style="display: none;">
+                <div class="modal-title">📄 SOW Preview</div>
+                <div class="modal-body">
+                    <div class="markdown-preview" id="sow-preview-content">
+                        <!-- Markdown rendered here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <div class="sow-actions">
+                        <button class="btn btn-secondary" onclick="showSOWStep('select')">← Back</button>
+                        <button class="btn btn-secondary" onclick="copySOWMarkdown()">📋 Copy Markdown</button>
+                        <button class="btn btn-primary" onclick="downloadSOW()">📥 Download SOW.md</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="sow-loading" style="display: none;">
+                <div class="spinner"></div>
+                <div class="loading-text">Generating Statement of Work with AI...</div>
+                <div class="loading-subtext" style="font-size: 0.85rem; color: #888; margin-top: 8px;">This may take 30-60 seconds for large project sets</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ========== State ==========
+        let scans = [];
+        let currentScan = null;
+        let filteredProjects = [];
+        let sortColumn = 'hours';
+        let sortDirection = 'desc';
+        let currentPage = 1;
+        const pageSize = 25;
+        
+        // Filter state (persists across re-renders)
+        let filterState = {
+            search: '',
+            bucket: '',
+            ci: '',
+            status: '',
+            blockers: '',
+            confidence: ''
+        };
+
+        // Driver explanations for migration complexity
+        const DRIVER_EXPLANATIONS = {
+            'CI complexity': 'GitLab CI syntax differs from GitHub Actions. Complex pipelines with includes, artifacts, caching, or matrix builds require manual conversion and testing.',
+            'Medium CI complexity': 'Moderate pipeline complexity - needs conversion of jobs, stages, and common features to GitHub Actions workflow syntax.',
+            'High CI complexity': 'Complex CI/CD setup with advanced features (includes, triggers, environments) requiring significant manual effort to recreate in GitHub Actions.',
+            'protected branches': 'Branch protection rules need to be recreated in GitHub with potentially different options and CODEOWNERS file migration.',
+            'Container registry': 'Container images stored in GitLab Registry must be pushed to GitHub Container Registry (ghcr.io) - cannot be auto-migrated.',
+            'Container registry migration': 'Docker images need manual export from GitLab and push to GitHub Container Registry.',
+            'GitLab Pages': 'Pages deployment configuration must be converted to GitHub Pages with different build/deploy workflow.',
+            'webhooks': 'Webhook integrations need to be reconfigured for GitHub events which have different payload formats.',
+            'CI/CD variables': 'Pipeline variables/secrets must be manually recreated as GitHub Actions secrets or environment variables.',
+            'releases': 'Release assets and tags can be migrated, but release notes may need formatting adjustments.',
+            'open merge requests': 'Open MRs should be reviewed - migrate as PRs or close before migration to avoid orphaned branches.',
+            'open issues': 'Issues can be migrated but labels, assignees, and references may need manual adjustment.',
+            'submodules': 'Git submodules work in GitHub but relative paths may need updates if repos change organization.',
+            'LFS': 'Git LFS objects need to be migrated. Large files may require LFS storage quota on GitHub.',
+            'custom runner tags': 'Self-hosted runner tags indicate dependency on custom infrastructure - GitHub self-hosted runners need setup.',
+            'Self-hosted runners': 'Custom CI runners must be set up as GitHub self-hosted runners with matching capabilities.',
+            'Docker-in-Docker': 'DinD setups may need reconfiguration for GitHub Actions container jobs.',
+            'wiki': 'GitLab wiki is a separate git repo - needs to be pushed to GitHub wiki repo.',
+            'large repository': 'Large repos may hit GitHub size limits or require Git LFS. Clone/push times will be longer.',
+            'many branches': 'Many branches increase migration time and may indicate cleanup opportunity before migration.'
+        };
+
+        // Get explanation for a driver (with partial matching)
+        function getDriverExplanation(driver) {
+            // Exact match first
+            if (DRIVER_EXPLANATIONS[driver]) {
+                return DRIVER_EXPLANATIONS[driver];
+            }
+            // Partial match
+            const driverLower = driver.toLowerCase();
+            for (const [key, value] of Object.entries(DRIVER_EXPLANATIONS)) {
+                if (driverLower.includes(key.toLowerCase()) || key.toLowerCase().includes(driverLower)) {
+                    return value;
+                }
+            }
+            // Default explanations based on keywords
+            if (driverLower.includes('ci') || driverLower.includes('pipeline')) {
+                return 'CI/CD configuration needs to be converted from GitLab CI YAML format to GitHub Actions workflow format.';
+            }
+            if (driverLower.includes('branch')) {
+                return 'Branch settings and protections need to be recreated in GitHub.';
+            }
+            if (driverLower.includes('registry') || driverLower.includes('container')) {
+                return 'Container images must be migrated to GitHub Container Registry.';
+            }
+            if (driverLower.includes('issue')) {
+                return 'Issues need review - labels, assignees, and cross-references may require manual adjustment.';
+            }
+            if (driverLower.includes('mr') || driverLower.includes('merge')) {
+                return 'Merge requests should be resolved or converted to GitHub pull requests.';
+            }
+            return 'This factor adds complexity to the migration and requires manual attention.';
+        }
+
+        // ========== Init ==========
+        document.addEventListener('DOMContentLoaded', loadScans);
+
+        async function loadScans() {
+            try {
+                const response = await fetch('/api/scans');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                scans = await response.json();
+                console.log('Loaded scans:', scans.length);
+                renderScanList();
+            } catch (error) {
+                console.error('Failed to load scans:', error);
+                document.getElementById('scan-list').innerHTML = `
+                    <li class="empty-state">
+                        <div class="empty-state-icon">❌</div>
+                        <p>Failed to load scans</p>
+                        <p style="font-size: 0.8rem; color: var(--text-muted)">${error.message || error}</p>
+                    </li>
+                `;
+            }
+        }
+
+        function renderScanList() {
+            const list = document.getElementById('scan-list');
+            const count = document.getElementById('scan-count');
+            count.textContent = scans.length;
+
+            if (scans.length === 0) {
+                list.innerHTML = `
+                    <li class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>No scans found</p>
+                    </li>
+                `;
+                return;
+            }
+
+            list.innerHTML = scans.map((scan, index) => {
+                const run = scan.run || {};
+                const projectCount = scan.projects?.length || 0;
+                const date = run.started_at ? new Date(run.started_at).toLocaleDateString() : 'Unknown';
+                
+                return `
+                    <li class="scan-item" onclick="selectScan(${index})">
+                        <div class="scan-name">${run.root_group || 'Unnamed Scan'}</div>
+                        <div class="scan-meta">${projectCount} projects • ${date}</div>
+                    </li>
+                `;
+            }).join('');
+
+            // Auto-select first scan
+            if (scans.length > 0) {
+                selectScan(0);
+            }
+        }
+
+        function selectScan(index) {
+            currentScan = scans[index];
+            filteredProjects = [...currentScan.projects];
+            currentPage = 1;
+            
+            // Update sidebar selection
+            document.querySelectorAll('.scan-item').forEach((item, i) => {
+                item.classList.toggle('active', i === index);
+            });
+
+            // Show Generate SOW button
+            document.getElementById('btn-generate-sow').style.display = 'inline-flex';
+
+            sortProjects();
+            renderDashboard();
+        }
+
+        // ========== Dashboard ==========
+        function renderDashboard() {
+            const content = document.getElementById('main-content');
+            
+            content.innerHTML = `
+                <div class="dashboard-grid">
+                    ${renderHoursSummary()}
+                    ${renderStatsRow()}
+                    ${renderBlockersAlert()}
+                    ${renderFiltersSection()}
+                    ${renderTableSection()}
+                </div>
+            `;
+        }
+
+        function calculateStats() {
+            let totalLow = 0, totalHigh = 0;
+            const confidenceCounts = { high: 0, medium: 0, low: 0 };
+            const bucketCounts = { S: 0, M: 0, L: 0, XL: 0 };
+            const allBlockers = new Set();
+            const allUnknowns = new Set();
+            let withCI = 0;
+            let withLFS = 0;
+            let archived = 0;
+            let withAiAnalysis = 0;
+
+            filteredProjects.forEach(p => {
+                // Hours
+                if (p.estimate?.hours_low != null) {
+                    totalLow += p.estimate.hours_low;
+                    totalHigh += p.estimate.hours_high || p.estimate.hours_low;
+                    confidenceCounts[p.estimate.confidence || 'medium']++;
+                    (p.estimate.blockers || []).forEach(b => allBlockers.add(b));
+                    (p.estimate.unknowns || []).forEach(u => allUnknowns.add(u));
+                }
+
+                // Bucket from estimate or legacy
+                const bucket = p.estimate?.bucket || p.facts?.migration_estimate?.bucket;
+                if (bucket) bucketCounts[bucket]++;
+
+                // Other stats
+                if (p.facts?.has_ci === true) withCI++;
+                if (p.facts?.has_lfs === true) withLFS++;
+                if (p.archived) archived++;
+                if (p.facts?.ci_profile?.ai_analysis) withAiAnalysis++;
+            });
+
+            return {
+                totalLow,
+                totalHigh,
+                confidenceCounts,
+                bucketCounts,
+                allBlockers: [...allBlockers],
+                allUnknowns: [...allUnknowns],
+                withCI,
+                withLFS,
+                archived,
+                withAiAnalysis,
+                total: filteredProjects.length
+            };
+        }
+
+        function renderHoursSummary() {
+            const stats = calculateStats();
+            const avgLow = stats.total > 0 ? (stats.totalLow / stats.total).toFixed(1) : 0;
+            const avgHigh = stats.total > 0 ? (stats.totalHigh / stats.total).toFixed(1) : 0;
+
+            return `
+                <div class="hours-summary">
+                    <div class="hours-block">
+                        <div class="hours-label">Total Estimated Hours</div>
+                        <div class="hours-value">${stats.totalLow.toFixed(0)} - ${stats.totalHigh.toFixed(0)}h</div>
+                        <div class="hours-range">Range across ${stats.total} projects</div>
+                    </div>
+                    <div class="hours-block">
+                        <div class="hours-label">Average Per Project</div>
+                        <div class="hours-value">${avgLow} - ${avgHigh}h</div>
+                        <div class="hours-range">Low to high estimate</div>
+                    </div>
+                    <div class="hours-block">
+                        <div class="hours-label">Estimate Confidence</div>
+                        <div class="confidence-dist">
+                            <span class="confidence-badge confidence-high">${stats.confidenceCounts.high} High</span>
+                            <span class="confidence-badge confidence-medium">${stats.confidenceCounts.medium} Med</span>
+                            <span class="confidence-badge confidence-low">${stats.confidenceCounts.low} Low</span>
+                        </div>
+                    </div>
+                    ${stats.withAiAnalysis > 0 ? `
+                    <div class="hours-block ai-block">
+                        <div class="hours-label">🤖 AI-Enhanced</div>
+                        <div class="hours-value" style="color: var(--primary)">${stats.withAiAnalysis}</div>
+                        <div class="hours-range">projects with AI analysis</div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function renderStatsRow() {
+            const stats = calculateStats();
+            
+            return `
+                <div class="stats-row">
+                    <div class="stat-card">
+                        <div class="stat-label">Projects</div>
+                        <div class="stat-value">${stats.total}</div>
+                        <div class="stat-sub">${stats.archived} archived</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Size S</div>
+                        <div class="stat-value success">${stats.bucketCounts.S}</div>
+                        <div class="stat-sub">&lt; 10 hours</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Size M</div>
+                        <div class="stat-value warning">${stats.bucketCounts.M}</div>
+                        <div class="stat-sub">10-25 hours</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Size L</div>
+                        <div class="stat-value" style="color: #FF8B00">${stats.bucketCounts.L}</div>
+                        <div class="stat-sub">25-50 hours</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Size XL</div>
+                        <div class="stat-value danger">${stats.bucketCounts.XL}</div>
+                        <div class="stat-sub">&gt; 50 hours</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">With CI/CD</div>
+                        <div class="stat-value primary">${stats.withCI}</div>
+                        <div class="stat-sub">${stats.total > 0 ? ((stats.withCI / stats.total) * 100).toFixed(0) : 0}% of total</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderBlockersAlert() {
+            const stats = calculateStats();
+            if (stats.allBlockers.length === 0) return '';
+
+            return `
+                <div class="blockers-alert">
+                    <div class="blockers-alert-header">
+                        ⚠️ ${stats.allBlockers.length} Migration Blockers Identified
+                    </div>
+                    <div class="blockers-tags">
+                        ${stats.allBlockers.slice(0, 8).map(b => `<span class="blocker-tag">${b}</span>`).join('')}
+                        ${stats.allBlockers.length > 8 ? `<span class="blocker-tag">+${stats.allBlockers.length - 8} more</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderFiltersSection() {
+            const sel = (val, current) => val === current ? 'selected' : '';
+            return `
+                <div class="filters-section">
+                    <div class="filters-header">
+                        <div class="filters-title">🔍 Filter Projects</div>
+                        <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+                    </div>
+                    <div class="filters-grid">
+                        <div class="filter-group">
+                            <label class="filter-label">Search</label>
+                            <input type="text" class="filter-input" id="filter-search" 
+                                   placeholder="Project name..." value="${filterState.search}" oninput="applyFilters()">
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Size</label>
+                            <select class="filter-select" id="filter-bucket" onchange="applyFilters()">
+                                <option value="" ${sel('', filterState.bucket)}>All Sizes</option>
+                                <option value="S" ${sel('S', filterState.bucket)}>S (&lt;10h)</option>
+                                <option value="M" ${sel('M', filterState.bucket)}>M (10-25h)</option>
+                                <option value="L" ${sel('L', filterState.bucket)}>L (25-50h)</option>
+                                <option value="XL" ${sel('XL', filterState.bucket)}>XL (&gt;50h)</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">CI/CD</label>
+                            <select class="filter-select" id="filter-ci" onchange="applyFilters()">
+                                <option value="" ${sel('', filterState.ci)}>All</option>
+                                <option value="yes" ${sel('yes', filterState.ci)}>Has CI/CD</option>
+                                <option value="no" ${sel('no', filterState.ci)}>No CI/CD</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Status</label>
+                            <select class="filter-select" id="filter-status" onchange="applyFilters()">
+                                <option value="" ${sel('', filterState.status)}>All</option>
+                                <option value="active" ${sel('active', filterState.status)}>Active</option>
+                                <option value="archived" ${sel('archived', filterState.status)}>Archived</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Blockers</label>
+                            <select class="filter-select" id="filter-blockers" onchange="applyFilters()">
+                                <option value="" ${sel('', filterState.blockers)}>All</option>
+                                <option value="yes" ${sel('yes', filterState.blockers)}>Has Blockers</option>
+                                <option value="no" ${sel('no', filterState.blockers)}>No Blockers</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Confidence</label>
+                            <select class="filter-select" id="filter-confidence" onchange="applyFilters()">
+                                <option value="" ${sel('', filterState.confidence)}>All</option>
+                                <option value="high" ${sel('high', filterState.confidence)}>High</option>
+                                <option value="medium" ${sel('medium', filterState.confidence)}>Medium</option>
+                                <option value="low" ${sel('low', filterState.confidence)}>Low</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTableSection() {
+            const stats = calculateStats();
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageProjects = filteredProjects.slice(start, end);
+            const totalPages = Math.ceil(filteredProjects.length / pageSize);
+
+            const sortClass = (col) => sortColumn === col ? `sorted-${sortDirection}` : '';
+
+            return `
+                <div class="table-section">
+                    <div class="table-header">
+                        <div class="table-title">Projects</div>
+                        <div class="table-info">
+                            Showing ${start + 1}-${Math.min(end, filteredProjects.length)} of ${filteredProjects.length}
+                            ${filteredProjects.length !== currentScan.projects.length ? 
+                                ` (filtered from ${currentScan.projects.length})` : ''}
+                        </div>
+                    </div>
+                    <table class="projects-table">
+                        <thead>
+                            <tr>
+                                <th class="${sortClass('name')}" onclick="handleSort('name')">Project</th>
+                                <th class="${sortClass('hours')}" onclick="handleSort('hours')">Hours</th>
+                                <th class="${sortClass('bucket')}" onclick="handleSort('bucket')">Size</th>
+                                <th class="${sortClass('ci')}" onclick="handleSort('ci')">CI/CD</th>
+                                <th class="${sortClass('status')}" onclick="handleSort('status')">Status</th>
+                                <th class="${sortClass('blockers')}" onclick="handleSort('blockers')">Blockers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${pageProjects.map(p => renderProjectRow(p)).join('')}
+                        </tbody>
+                    </table>
+                    ${renderPagination(totalPages)}
+                </div>
+            `;
+        }
+
+        function renderProjectRow(project) {
+            const estimate = project.estimate;
+            const legacyEstimate = project.facts?.migration_estimate;
+            const bucket = estimate?.bucket || legacyEstimate?.bucket;
+            const blockerCount = (project.estimate?.blockers?.length || 0) + (project.readiness?.blockers?.length || 0);
+            const hasCi = project.facts?.has_ci;
+
+            // Hours display
+            let hoursDisplay = '-';
+            let hoursClass = '';
+            if (estimate?.hours_low != null) {
+                hoursDisplay = `${estimate.hours_low.toFixed(0)}-${estimate.hours_high.toFixed(0)}h`;
+                hoursClass = estimate.hours_high < 15 ? 'low' : estimate.hours_high < 40 ? 'medium' : 'high';
+            }
+            
+            // Check if AI analysis was used
+            const hasAiAnalysis = project.facts?.ci_profile?.ai_analysis != null;
+
+            return `
+                <tr id="row-${project.id}" class="${project._expanded ? 'expanded' : ''}">
+                    <td>
+                        <span class="project-name" onclick="toggleDetails(${project.id})">${project.path_with_namespace}</span>
+                        ${hasAiAnalysis ? '<span class="ai-badge" title="AI-Enhanced Estimate">🤖</span>' : ''}
+                    </td>
+                    <td>
+                        <span class="hours-cell ${hoursClass}">${hoursDisplay}</span>
+                        ${estimate?.confidence ? `<span class="confidence-mini ${estimate.confidence}" title="${estimate.confidence} confidence"></span>` : ''}
+                    </td>
+                    <td>${bucket ? `<span class="badge badge-bucket-${bucket.toLowerCase()}">${bucket}</span>` : '<span class="badge badge-unknown">-</span>'}</td>
+                    <td><span class="badge ${hasCi === true ? 'badge-yes' : hasCi === false ? 'badge-no' : 'badge-unknown'}">${hasCi === true ? 'Yes' : hasCi === false ? 'No' : '?'}</span></td>
+                    <td><span class="badge ${project.archived ? 'badge-archived' : 'badge-active'}">${project.archived ? 'Archived' : 'Active'}</span></td>
+                    <td>${blockerCount > 0 ? `<span class="badge badge-blockers">${blockerCount}</span>` : '<span class="badge badge-no">0</span>'}</td>
+                </tr>
+                <tr id="details-${project.id}" class="project-details ${project._expanded ? 'visible' : ''}">
+                    <td colspan="6">
+                        ${renderProjectDetails(project)}
+                    </td>
+                </tr>
+            `;
+        }
+
+        function renderProjectDetails(project) {
+            const estimate = project.estimate;
+            const facts = project.facts || {};
+            const enrichment = facts.enrichment;
+            const aiAnalysis = facts.ci_profile?.ai_analysis;
+
+            // Build breakdown items compactly
+            const breakdownItems = [];
+            if (estimate?.breakdown) {
+                if (estimate.breakdown.code) breakdownItems.push({icon: '📁', name: 'Code', low: estimate.breakdown.code.hours_low, high: estimate.breakdown.code.hours_high, note: estimate.breakdown.code.notes});
+                if (estimate.breakdown.mrs) breakdownItems.push({icon: '🔀', name: 'MRs', low: estimate.breakdown.mrs.hours_low, high: estimate.breakdown.mrs.hours_high, note: estimate.breakdown.mrs.notes});
+                if (estimate.breakdown.issues) breakdownItems.push({icon: '🎫', name: 'Issues', low: estimate.breakdown.issues.hours_low, high: estimate.breakdown.issues.hours_high, note: estimate.breakdown.issues.notes});
+                if (estimate.breakdown.ci) breakdownItems.push({icon: '⚙️', name: 'CI/CD', low: estimate.breakdown.ci.hours_low, high: estimate.breakdown.ci.hours_high, note: estimate.breakdown.ci.notes});
+            }
+
+            // Collect all blockers
+            const allBlockers = [...(estimate?.blockers || []), ...(project.readiness?.blockers || [])];
+
+            return `
+                <div class="details-content">
+                    <!-- LEFT PANEL -->
+                    <div class="details-panel">
+                        <!-- Project Info + CI compact -->
+                        <div class="detail-card">
+                            <div class="detail-card-title">📋 Project Info</div>
+                            <div class="info-row">
+                                <span class="info-item"><strong>ID:</strong> ${project.id}</span>
+                                <span class="info-item"><strong>Branch:</strong> ${project.default_branch || 'N/A'}</span>
+                                <span class="info-item"><strong>Visibility:</strong> ${project.visibility}</span>
+                            </div>
+                            ${facts.mr_counts !== 'unknown' || facts.issue_counts !== 'unknown' ? `
+                            <div class="info-row" style="margin-top: 8px;">
+                                ${facts.mr_counts !== 'unknown' ? `<span class="info-item"><strong>MRs:</strong> ${facts.mr_counts?.open || 0} open / ${facts.mr_counts?.merged || 0} merged</span>` : ''}
+                                ${facts.issue_counts !== 'unknown' ? `<span class="info-item"><strong>Issues:</strong> ${facts.issue_counts?.open || 0} open / ${facts.issue_counts?.closed || 0} closed</span>` : ''}
+                            </div>
+                            ` : ''}
+                            ${enrichment?.integrations ? `
+                            <div class="integration-grid" style="margin-top: 10px;">
+                                <span class="integration-item ${enrichment.integrations.protected_branches?.count > 0 ? 'active' : ''}">🔒 ${enrichment.integrations.protected_branches?.count || 0}</span>
+                                <span class="integration-item ${enrichment.integrations.registry?.enabled ? 'active' : ''}">📦 ${enrichment.integrations.registry?.enabled ? '✓' : '✗'}</span>
+                                <span class="integration-item ${enrichment.integrations.pages?.enabled ? 'active' : ''}">📄 ${enrichment.integrations.pages?.enabled ? '✓' : '✗'}</span>
+                                <span class="integration-item"">🏷️ ${enrichment.integrations.releases?.releases_count || 0}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+
+                        ${facts.ci_profile?.present ? `
+                        <!-- CI/CD Profile compact -->
+                        <div class="detail-card">
+                            <div class="detail-card-title">⚙️ CI/CD</div>
+                            <div class="info-row">
+                                <span class="info-item"><strong>Lines:</strong> ${facts.ci_profile.total_lines || 0}</span>
+                                <span class="info-item"><strong>Jobs:</strong> ${facts.ci_profile.job_count || 0}</span>
+                                ${aiAnalysis ? `<span class="info-item">🤖 <strong>${aiAnalysis.risk}</strong> risk</span>` : ''}
+                            </div>
+                            ${facts.ci_profile.features ? `
+                            <div class="integration-grid" style="margin-top: 8px;">
+                                ${Object.entries(facts.ci_profile.features).filter(([k, v]) => v).map(([k]) => 
+                                    `<span class="integration-item active">${k}</span>`
+                                ).join('') || '<span class="integration-item">None</span>'}
+                            </div>
+                            ` : ''}
+                            ${aiAnalysis?.not_supported?.length ? `
+                            <div style="margin-top: 8px;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                                    ${aiAnalysis.not_supported.map(c => `<span style="padding: 2px 6px; background: var(--danger-light); border-radius: 3px; font-size: 10px; color: var(--danger);">⚠️ ${c}</span>`).join('')}
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+
+                        ${project.readiness?.notes?.length ? `
+                        <!-- Recommendations compact -->
+                        <div class="detail-card">
+                            <div class="detail-card-title">💡 Notes</div>
+                            <ul style="margin: 0; padding-left: 16px; font-size: 11px; color: var(--neutral-500);">
+                                ${project.readiness.notes.map(n => `<li style="margin-bottom: 2px;">${n}</li>`).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+                    </div>
+
+                    <!-- RIGHT PANEL -->
+                    <div class="details-panel">
+                        ${estimate ? `
+                        <!-- Estimate Header -->
+                        <div class="detail-card" style="background: linear-gradient(135deg, var(--primary-light) 0%, var(--neutral-0) 100%);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div class="detail-card-title" style="margin: 0;">💰 ESTIMATE</div>
+                                <span class="badge badge-bucket-${estimate.bucket?.toLowerCase()}">${estimate.bucket}</span>
+                            </div>
+                            <div style="display: flex; align-items: baseline; gap: 8px;">
+                                <span style="font-size: 24px; font-weight: 700; color: var(--primary);">${estimate.hours_low}h - ${estimate.hours_high}h</span>
+                                <span class="confidence-badge confidence-${estimate.confidence}" style="font-size: 10px;">${estimate.confidence}</span>
+                            </div>
+                        </div>
+
+                        ${breakdownItems.length ? `
+                        <!-- Breakdown compact table -->
+                        <div class="detail-card">
+                            <div class="detail-card-title">📊 BREAKDOWN</div>
+                            <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                                ${breakdownItems.map(b => `
+                                <tr style="border-bottom: 1px solid var(--neutral-20);">
+                                    <td style="padding: 6px 0; width: 90px;"><strong>${b.icon} ${b.name}</strong></td>
+                                    <td style="padding: 6px 0; font-weight: 600; color: var(--primary); width: 70px;">${b.low}h - ${b.high}h</td>
+                                    <td style="padding: 6px 0; color: var(--neutral-400); font-size: 10px;">${b.note || ''}</td>
+                                </tr>
+                                `).join('')}
+                            </table>
+                        </div>
+                        ` : ''}
+                        ` : ''}
+
+                        ${allBlockers.length ? `
+                        <!-- Blockers compact -->
+                        <div class="detail-card" style="background: var(--danger-light); border-color: #FFBDAD;">
+                            <div class="detail-card-title" style="color: var(--danger);">🚧 BLOCKERS (${allBlockers.length})</div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                                ${allBlockers.map(b => `<span style="padding: 3px 8px; background: var(--neutral-0); border-radius: 3px; font-size: 11px; border: 1px solid #FFBDAD;">${b}</span>`).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        ${estimate?.unknowns?.length ? `
+                        <!-- Data gaps compact -->
+                        <div class="detail-card" style="background: var(--warning-light); border-color: #FFE380;">
+                            <div class="detail-card-title" style="color: var(--warning);">❓ DATA GAPS</div>
+                            <div style="font-size: 11px; color: var(--neutral-500);">
+                                ${estimate.unknowns.join(' • ')}
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPagination(totalPages) {
+            const start = (currentPage - 1) * pageSize + 1;
+            const end = Math.min(currentPage * pageSize, filteredProjects.length);
+
+            return `
+                <div class="pagination">
+                    <div class="pagination-info">
+                        Page ${currentPage} of ${totalPages || 1}
+                    </div>
+                    <div class="pagination-buttons">
+                        <button class="pagination-btn" onclick="goToPage(1)" ${currentPage === 1 ? 'disabled' : ''}>First</button>
+                        <button class="pagination-btn" onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>Prev</button>
+                        <button class="pagination-btn" onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
+                        <button class="pagination-btn" onclick="goToPage(${totalPages})" ${currentPage >= totalPages ? 'disabled' : ''}>Last</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ========== Filtering ==========
+        function applyFilters() {
+            // Save filter state
+            filterState.search = document.getElementById('filter-search')?.value || '';
+            filterState.bucket = document.getElementById('filter-bucket')?.value || '';
+            filterState.ci = document.getElementById('filter-ci')?.value || '';
+            filterState.status = document.getElementById('filter-status')?.value || '';
+            filterState.blockers = document.getElementById('filter-blockers')?.value || '';
+            filterState.confidence = document.getElementById('filter-confidence')?.value || '';
+
+            const search = filterState.search.toLowerCase();
+
+            filteredProjects = currentScan.projects.filter(p => {
+                if (search && !p.path_with_namespace.toLowerCase().includes(search)) return false;
+                
+                const pBucket = p.estimate?.bucket || p.facts?.migration_estimate?.bucket;
+                if (filterState.bucket && pBucket !== filterState.bucket) return false;
+                
+                if (filterState.ci === 'yes' && p.facts?.has_ci !== true) return false;
+                if (filterState.ci === 'no' && p.facts?.has_ci === true) return false;
+                
+                if (filterState.status === 'active' && p.archived === true) return false;
+                if (filterState.status === 'archived' && p.archived !== true) return false;
+                
+                const blockerCount = (p.estimate?.blockers?.length || 0) + (p.readiness?.blockers?.length || 0);
+                if (filterState.blockers === 'yes' && blockerCount === 0) return false;
+                if (filterState.blockers === 'no' && blockerCount > 0) return false;
+                
+                if (filterState.confidence && p.estimate?.confidence !== filterState.confidence) return false;
+                
+                return true;
+            });
+
+            currentPage = 1;
+            sortProjects();
+            renderDashboard();
+        }
+
+        function resetFilters() {
+            filterState = { search: '', bucket: '', ci: '', status: '', blockers: '', confidence: '' };
+            filteredProjects = [...currentScan.projects];
+            currentPage = 1;
+            sortProjects();
+            renderDashboard();
+        }
+
+        // ========== Sorting ==========
+        function sortProjects() {
+            filteredProjects.sort((a, b) => {
+                let aVal, bVal;
+
+                switch(sortColumn) {
+                    case 'name':
+                        aVal = a.path_with_namespace.toLowerCase();
+                        bVal = b.path_with_namespace.toLowerCase();
+                        break;
+                    case 'hours':
+                        aVal = a.estimate?.hours_high || a.facts?.migration_estimate?.work_score || 0;
+                        bVal = b.estimate?.hours_high || b.facts?.migration_estimate?.work_score || 0;
+                        break;
+                    case 'bucket':
+                        const order = { S: 1, M: 2, L: 3, XL: 4 };
+                        aVal = order[a.estimate?.bucket || a.facts?.migration_estimate?.bucket] || 0;
+                        bVal = order[b.estimate?.bucket || b.facts?.migration_estimate?.bucket] || 0;
+                        break;
+                    case 'ci':
+                        aVal = a.facts?.has_ci === true ? 1 : 0;
+                        bVal = b.facts?.has_ci === true ? 1 : 0;
+                        break;
+                    case 'status':
+                        aVal = a.archived ? 1 : 0;
+                        bVal = b.archived ? 1 : 0;
+                        break;
+                    case 'blockers':
+                        aVal = (a.estimate?.blockers?.length || 0) + (a.readiness?.blockers?.length || 0);
+                        bVal = (b.estimate?.blockers?.length || 0) + (b.readiness?.blockers?.length || 0);
+                        break;
+                    default:
+                        aVal = 0;
+                        bVal = 0;
+                }
+
+                if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+                if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        function handleSort(column) {
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = column === 'hours' || column === 'blockers' ? 'desc' : 'asc';
+            }
+            sortProjects();
+            renderDashboard();
+        }
+
+        // ========== Pagination ==========
+        function goToPage(page) {
+            const totalPages = Math.ceil(filteredProjects.length / pageSize);
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            renderDashboard();
+        }
+
+        // ========== Details Toggle ==========
+        function toggleDetails(projectId) {
+            const project = filteredProjects.find(p => p.id === projectId);
+            if (project) {
+                project._expanded = !project._expanded;
+                const row = document.getElementById(`row-${projectId}`);
+                const details = document.getElementById(`details-${projectId}`);
+                if (row) row.classList.toggle('expanded');
+                if (details) details.classList.toggle('visible');
+            }
+        }
+
+        // ========== Export Functions ==========
+        function showExportModal() {
+            document.getElementById('export-modal').classList.add('visible');
+        }
+
+        function hideExportModal() {
+            document.getElementById('export-modal').classList.remove('visible');
+        }
+
+        function exportCSV(type) {
+            if (!currentScan) return;
+            
+            let csv = '';
+            const projects = filteredProjects;
+            
+            if (type === 'summary') {
+                csv = 'Project,Hours Low,Hours High,Bucket,Confidence,Has CI,Archived,Blockers\n';
+                projects.forEach(p => {
+                    const est = p.estimate;
+                    const bucket = est?.bucket || p.facts?.migration_estimate?.bucket || '';
+                    const blockerCount = (est?.blockers?.length || 0) + (p.readiness?.blockers?.length || 0);
+                    csv += `"${p.path_with_namespace}",${est?.hours_low || ''},${est?.hours_high || ''},${bucket},${est?.confidence || ''},${p.facts?.has_ci === true ? 'Yes' : 'No'},${p.archived ? 'Yes' : 'No'},${blockerCount}\n`;
+                });
+            } else {
+                csv = 'Project,Hours Low,Hours High,Bucket,Confidence,Has CI,Has LFS,Archived,Open MRs,Open Issues,Blockers,Unknowns,Drivers\n';
+                projects.forEach(p => {
+                    const est = p.estimate;
+                    const facts = p.facts || {};
+                    const bucket = est?.bucket || facts.migration_estimate?.bucket || '';
+                    const blockers = [...(est?.blockers || []), ...(p.readiness?.blockers || [])].join('; ');
+                    const unknowns = (est?.unknowns || []).join('; ');
+                    const drivers = (est?.drivers || []).join('; ');
+                    csv += `"${p.path_with_namespace}",${est?.hours_low || ''},${est?.hours_high || ''},${bucket},${est?.confidence || ''},${facts.has_ci === true ? 'Yes' : 'No'},${facts.has_lfs === true ? 'Yes' : 'No'},${p.archived ? 'Yes' : 'No'},${facts.mr_counts?.open || ''},${facts.issue_counts?.open || ''},"${blockers}","${unknowns}","${drivers}"\n`;
+                });
+            }
+            
+            downloadFile(csv, `migration-assessment-${type}.csv`, 'text/csv');
+            hideExportModal();
+        }
+
+        function exportJSON() {
+            if (!currentScan) return;
+            
+            const data = {
+                run: currentScan.run,
+                summary: calculateStats(),
+                projects: filteredProjects
+            };
+            
+            downloadFile(JSON.stringify(data, null, 2), 'migration-assessment.json', 'application/json');
+            hideExportModal();
+        }
+
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // ========== SOW Generation Functions ==========
+        let sowSelectedProjects = new Set();
+        let sowFilteredProjects = [];
+        let generatedSOW = null;
+
+        function showSOWModal() {
+            if (!currentScan) return;
+            
+            // Reset state
+            sowSelectedProjects = new Set();
+            sowFilteredProjects = [...currentScan.projects];
+            generatedSOW = null;
+            
+            // Render project list
+            renderSOWProjectList();
+            updateSOWSelectionStats();
+            
+            // Set default date to next Monday
+            const today = new Date();
+            const nextMonday = new Date(today);
+            nextMonday.setDate(today.getDate() + ((8 - today.getDay()) % 7 || 7));
+            document.getElementById('sow-start-date').value = nextMonday.toISOString().split('T')[0];
+            
+            // Show modal
+            document.getElementById('sow-modal').classList.add('visible');
+            showSOWStep('select');
+        }
+
+        function hideSOWModal() {
+            document.getElementById('sow-modal').classList.remove('visible');
+        }
+
+        function showSOWStep(step) {
+            document.getElementById('sow-step-select').style.display = step === 'select' ? 'block' : 'none';
+            document.getElementById('sow-step-preview').style.display = step === 'preview' ? 'block' : 'none';
+        }
+
+        function renderSOWProjectList() {
+            const container = document.getElementById('sow-project-list');
+            
+            if (sowFilteredProjects.length === 0) {
+                container.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--neutral-200);">No projects found</div>';
+                return;
+            }
+            
+            container.innerHTML = sowFilteredProjects.map(p => {
+                const est = p.estimate || {};
+                const facts = p.facts || {};
+                const bucket = est.bucket || facts.migration_estimate?.bucket || '-';
+                const hoursLow = est.hours_low || 0;
+                const hoursHigh = est.hours_high || 0;
+                const isSelected = sowSelectedProjects.has(p.id);
+                
+                return `
+                    <div class="project-select-item ${isSelected ? 'selected' : ''}" onclick="toggleSOWProject(${p.id})">
+                        <input type="checkbox" class="project-checkbox" ${isSelected ? 'checked' : ''} 
+                               onclick="event.stopPropagation(); toggleSOWProject(${p.id})">
+                        <div class="project-info">
+                            <div class="project-name">${p.path_with_namespace}</div>
+                            <div class="project-meta">
+                                <span class="project-meta-item">
+                                    <span class="badge badge-bucket-${bucket.toLowerCase()}">${bucket}</span>
+                                </span>
+                                <span class="project-meta-item">
+                                    ⏱️ ${hoursLow.toFixed(0)}-${hoursHigh.toFixed(0)}h
+                                </span>
+                                <span class="project-meta-item">
+                                    ${facts.has_ci ? '✅ CI' : '❌ CI'}
+                                </span>
+                                ${p.archived ? '<span class="project-meta-item">📦 Archived</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleSOWProject(projectId) {
+            if (sowSelectedProjects.has(projectId)) {
+                sowSelectedProjects.delete(projectId);
+            } else {
+                sowSelectedProjects.add(projectId);
+            }
+            renderSOWProjectList();
+            updateSOWSelectionStats();
+        }
+
+        function selectAllSOWProjects() {
+            sowFilteredProjects.forEach(p => sowSelectedProjects.add(p.id));
+            renderSOWProjectList();
+            updateSOWSelectionStats();
+        }
+
+        function clearSOWSelection() {
+            sowSelectedProjects.clear();
+            renderSOWProjectList();
+            updateSOWSelectionStats();
+        }
+
+        function filterSOWProjects() {
+            const search = document.getElementById('sow-search').value.toLowerCase();
+            
+            if (!search) {
+                sowFilteredProjects = [...currentScan.projects];
+            } else {
+                sowFilteredProjects = currentScan.projects.filter(p => 
+                    p.path_with_namespace.toLowerCase().includes(search)
+                );
+            }
+            
+            renderSOWProjectList();
+        }
+
+        function updateSOWSelectionStats() {
+            const selectedProjects = currentScan.projects.filter(p => sowSelectedProjects.has(p.id));
+            
+            let totalLow = 0, totalHigh = 0, ciCount = 0;
+            selectedProjects.forEach(p => {
+                const est = p.estimate || {};
+                totalLow += est.hours_low || 0;
+                totalHigh += est.hours_high || 0;
+                if (p.facts?.has_ci) ciCount++;
+            });
+            
+            document.getElementById('sow-selected-count').textContent = selectedProjects.length;
+            document.getElementById('sow-selected-hours').textContent = `${totalLow.toFixed(0)} - ${totalHigh.toFixed(0)}`;
+            document.getElementById('sow-selected-ci').textContent = ciCount;
+            
+            // Enable/disable generate button
+            const btn = document.getElementById('btn-generate');
+            btn.disabled = selectedProjects.length === 0;
+            btn.textContent = selectedProjects.length === 0 ? 'Select projects first' : 'Generate SOW →';
+        }
+
+        async function generateSOW() {
+            if (sowSelectedProjects.size === 0) {
+                alert('Please select at least one project');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('sow-loading').style.display = 'flex';
+            
+            try {
+                const requestBody = {
+                    selected_project_ids: Array.from(sowSelectedProjects),
+                    discovery: currentScan,
+                    sow_options: {
+                        client_name: document.getElementById('sow-client-name').value || '[CLIENT NAME]',
+                        target_github_org: document.getElementById('sow-github-org').value || '[GITHUB ORG]',
+                        migration_mode: document.getElementById('sow-migration-mode').value,
+                        timeline_start_date: document.getElementById('sow-start-date').value,
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                    }
+                };
+                
+                const response = await fetch('/api/sow/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                console.log('[SOW] Response status:', response.status);
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to generate SOW');
+                }
+                
+                generatedSOW = await response.json();
+                console.log('[SOW] Response received:', {
+                    markdownLength: generatedSOW.markdown?.length || 0,
+                    filename: generatedSOW.filename,
+                    summary: generatedSOW.summary
+                });
+                
+                if (!generatedSOW.markdown || generatedSOW.markdown.length === 0) {
+                    throw new Error('Server returned empty SOW content');
+                }
+                
+                // Render markdown preview
+                renderMarkdownPreview(generatedSOW.markdown);
+                
+                // Show preview step
+                showSOWStep('preview');
+                
+            } catch (error) {
+                console.error('SOW generation failed:', error);
+                alert('Failed to generate SOW: ' + error.message);
+            } finally {
+                document.getElementById('sow-loading').style.display = 'none';
+            }
+        }
+
+        function renderMarkdownPreview(markdown) {
+            // Simple markdown to HTML conversion
+            let html = markdown
+                // Escape HTML first
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                // Headers
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                // Bold and italic
+                .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                // Code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Horizontal rule
+                .replace(/^---$/gm, '<hr>')
+                // Line breaks
+                .replace(/\n\n/g, '</p><p>')
+                // Lists
+                .replace(/^\- \[ \] (.*$)/gm, '<li>☐ $1</li>')
+                .replace(/^\- \[x\] (.*$)/gm, '<li>☑ $1</li>')
+                .replace(/^- (.*$)/gm, '<li>$1</li>')
+                .replace(/^\d+\. (.*$)/gm, '<li>$1</li>');
+            
+            // Tables - more complex handling
+            const tableRegex = /\|(.+)\|\n\|[-:| ]+\|\n((\|.+\|\n?)+)/g;
+            html = html.replace(tableRegex, (match, header, body) => {
+                const headers = header.split('|').filter(h => h.trim()).map(h => `<th>${h.trim()}</th>`).join('');
+                const rows = body.trim().split('\n').map(row => {
+                    const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+                    return `<tr>${cells}</tr>`;
+                }).join('');
+                return `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+            });
+            
+            // Wrap in paragraphs
+            html = '<p>' + html + '</p>';
+            
+            // Fix nested elements
+            html = html.replace(/<p>\s*<(h[1-6]|ul|ol|table|hr)/g, '<$1');
+            html = html.replace(/<\/(h[1-6]|ul|ol|table)>\s*<\/p>/g, '</$1>');
+            
+            // Wrap list items
+            html = html.replace(/(<li>.*<\/li>)+/g, '<ul>$&</ul>');
+            
+            document.getElementById('sow-preview-content').innerHTML = html;
+        }
+
+        function copySOWMarkdown() {
+            if (!generatedSOW) return;
+            
+            navigator.clipboard.writeText(generatedSOW.markdown).then(() => {
+                alert('Markdown copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                // Fallback
+                const textarea = document.createElement('textarea');
+                textarea.value = generatedSOW.markdown;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('Markdown copied to clipboard!');
+            });
+        }
+
+        function downloadSOW() {
+            if (!generatedSOW) return;
+            downloadFile(generatedSOW.markdown, generatedSOW.filename, 'text/markdown');
+        }
+
+        // Close modal on outside click
+        document.getElementById('export-modal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                hideExportModal();
+            }
+        });
+
+        document.getElementById('sow-modal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                hideSOWModal();
+            }
+        });
+    </script>
+</body>
+</html>
