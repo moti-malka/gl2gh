@@ -101,7 +101,7 @@ class AgentClientFactory:
     @classmethod
     def is_azure_ai_configured(cls) -> bool:
         """Check if Azure AI is configured"""
-        return bool(
+        return AZURE_AI_AVAILABLE and bool(
             settings.AZURE_AI_PROJECT_ENDPOINT and 
             settings.AZURE_AI_MODEL_DEPLOYMENT_NAME
         )

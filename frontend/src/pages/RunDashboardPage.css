@@ -1,0 +1,255 @@
+/* Run Dashboard Page Styles */
+.run-dashboard-page .run-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.progress-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.progress-section h2 {
+  margin: 0 0 1rem;
+  color: #2d3748;
+  font-size: 1.25rem;
+}
+
+.progress-bar-container {
+  height: 40px;
+  background: #e2e8f0;
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+}
+
+.progress-text {
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.components-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.components-section h2 {
+  margin: 0 0 1.5rem;
+  color: #2d3748;
+  font-size: 1.25rem;
+}
+
+.components-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.component-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f7fafc;
+  transition: all 0.2s;
+}
+
+.component-card.running {
+  border-color: #4299e1;
+  background: #ebf8ff;
+}
+
+.component-card.completed {
+  border-color: #48bb78;
+  background: #f0fff4;
+}
+
+.component-card.failed {
+  border-color: #e53e3e;
+  background: #fff5f5;
+}
+
+.component-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  background: white;
+  border: 2px solid currentColor;
+}
+
+.component-card.running .component-icon {
+  color: #4299e1;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.component-card.completed .component-icon {
+  color: #48bb78;
+}
+
+.component-card.failed .component-icon {
+  color: #e53e3e;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.component-name {
+  font-weight: 600;
+  color: #2d3748;
+  text-transform: capitalize;
+}
+
+.component-status {
+  font-size: 0.75rem;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.events-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.events-section h2 {
+  margin: 0 0 1.5rem;
+  color: #2d3748;
+  font-size: 1.25rem;
+}
+
+.events-log {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f7fafc;
+}
+
+.event-item {
+  display: grid;
+  grid-template-columns: 100px 150px 1fr;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.875rem;
+}
+
+.event-item:last-child {
+  border-bottom: none;
+}
+
+.event-time {
+  color: #718096;
+  font-family: 'Courier New', monospace;
+}
+
+.event-type {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.event-type.info {
+  background: #bee3f8;
+  color: #2c5282;
+}
+
+.event-type.component_started {
+  background: #fefcbf;
+  color: #744210;
+}
+
+.event-type.component_completed {
+  background: #c6f6d5;
+  color: #22543d;
+}
+
+.event-type.error {
+  background: #fed7d7;
+  color: #742a2a;
+}
+
+.event-message {
+  color: #2d3748;
+  word-break: break-word;
+}
+
+.artifacts-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.artifacts-section h2 {
+  margin: 0 0 1.5rem;
+  color: #2d3748;
+  font-size: 1.25rem;
+}
+
+.artifacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.artifact-link {
+  display: block;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  text-decoration: none;
+  color: #2d3748;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.artifact-link:hover {
+  background: #f7fafc;
+  border-color: #667eea;
+}
+
+@media (max-width: 768px) {
+  .components-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .event-item {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+}
