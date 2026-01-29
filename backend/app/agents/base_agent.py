@@ -115,7 +115,7 @@ class BaseAgent(ABC):
         log_data = {
             "agent": self.agent_name,
             "timestamp": datetime.utcnow().isoformat(),
-            "message": message,
+            "event_message": message,
             "payload": payload or {}
         }
         

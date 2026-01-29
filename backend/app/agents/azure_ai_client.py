@@ -2,12 +2,22 @@
 
 import os
 from typing import Optional
-from agent_framework.azure import AzureAIClient
-from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
 from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Try to import Azure AI dependencies, but allow graceful fallback
+try:
+    from agent_framework.azure import AzureAIClient
+    from azure.identity.aio import AzureCliCredential, DefaultAzureCredential
+    AZURE_AI_AVAILABLE = True
+except ImportError:
+    logger.info("Azure AI dependencies not available, agents will run in local mode")
+    AzureAIClient = None
+    AzureCliCredential = None
+    DefaultAzureCredential = None
+    AZURE_AI_AVAILABLE = False
 
 
 class AgentClientFactory:
@@ -41,6 +51,10 @@ class AgentClientFactory:
             - AZURE_CLIENT_ID
             - AZURE_CLIENT_SECRET
         """
+        if not AZURE_AI_AVAILABLE:
+            logger.debug("Azure AI dependencies not installed")
+            return None
+            
         if not settings.AZURE_AI_PROJECT_ENDPOINT or not settings.AZURE_AI_MODEL_DEPLOYMENT_NAME:
             logger.info("Azure AI not configured, agents will run in local mode")
             return None
@@ -87,7 +101,7 @@ class AgentClientFactory:
     @classmethod
     def is_azure_ai_configured(cls) -> bool:
         """Check if Azure AI is configured"""
-        return bool(
+        return AZURE_AI_AVAILABLE and bool(
             settings.AZURE_AI_PROJECT_ENDPOINT and 
             settings.AZURE_AI_MODEL_DEPLOYMENT_NAME
         )
