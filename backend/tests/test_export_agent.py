@@ -154,7 +154,7 @@ build:
 async def test_export_agent_initialization(export_agent):
     """Test ExportAgent initialization"""
     assert export_agent.agent_name == "ExportAgent"
-    assert export_agent.gl_client is None
+    assert export_agent.gitlab_client is None
     assert "repository" in export_agent.export_stats
     assert "ci" in export_agent.export_stats
 
@@ -211,7 +211,7 @@ async def test_create_directory_structure(export_agent, tmp_path):
 @pytest.mark.asyncio
 async def test_export_ci_cd(export_agent, mock_gitlab_client, tmp_path):
     """Test CI/CD export"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -241,7 +241,7 @@ async def test_export_ci_cd(export_agent, mock_gitlab_client, tmp_path):
 @pytest.mark.asyncio
 async def test_export_issues(export_agent, mock_gitlab_client, tmp_path):
     """Test issues export"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -267,7 +267,7 @@ async def test_export_issues(export_agent, mock_gitlab_client, tmp_path):
 @pytest.mark.asyncio
 async def test_export_merge_requests(export_agent, mock_gitlab_client, tmp_path):
     """Test merge requests export"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -294,7 +294,7 @@ async def test_export_merge_requests(export_agent, mock_gitlab_client, tmp_path)
 @pytest.mark.asyncio
 async def test_export_releases(export_agent, mock_gitlab_client, tmp_path):
     """Test releases export"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -312,7 +312,7 @@ async def test_export_releases(export_agent, mock_gitlab_client, tmp_path):
 @pytest.mark.asyncio
 async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
     """Test packages export"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -330,7 +330,7 @@ async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
 @pytest.mark.asyncio
 async def test_export_settings(export_agent, mock_gitlab_client, tmp_path):
     """Test settings export"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -423,7 +423,7 @@ async def test_generate_artifacts(export_agent):
 @pytest.mark.asyncio
 async def test_export_repository_no_url(export_agent, mock_gitlab_client, tmp_path):
     """Test repository export with missing URL"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)
@@ -438,7 +438,7 @@ async def test_export_repository_no_url(export_agent, mock_gitlab_client, tmp_pa
 @pytest.mark.asyncio
 async def test_export_wiki_disabled(export_agent, mock_gitlab_client, tmp_path):
     """Test wiki export when wiki is disabled"""
-    export_agent.gl_client = mock_gitlab_client
+    export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
     export_agent._create_directory_structure(output_dir)

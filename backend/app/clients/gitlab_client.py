@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import urllib.parse
 from typing import Any, Dict, List, Optional, AsyncIterator
 from pathlib import Path
 import httpx
@@ -228,7 +229,6 @@ class GitLabClient:
     async def get_project_by_path(self, path_with_namespace: str) -> Dict[str, Any]:
         """Get project by path"""
         # URL encode the path
-        import urllib.parse
         encoded_path = urllib.parse.quote(path_with_namespace, safe='')
         response = await self._request('GET', f"projects/{encoded_path}")
         return response.json()
@@ -257,7 +257,6 @@ class GitLabClient:
     ) -> Optional[str]:
         """Get file content"""
         try:
-            import urllib.parse
             encoded_path = urllib.parse.quote(file_path, safe='')
             response = await self._request(
                 'GET',

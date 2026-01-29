@@ -2,6 +2,8 @@
 
 import json
 import subprocess
+import shutil
+import urllib.parse
 import asyncio
 from typing import Any, Dict, List, Optional
 from pathlib import Path
@@ -54,7 +56,7 @@ class ExportAgent(BaseAgent):
             Generate comprehensive export manifest for tracking.
             """
         )
-        self.gl_client: Optional[GitLabClient] = None
+        self.gitlab_client: Optional[GitLabClient] = None
         self.checkpoint: Optional[ExportCheckpoint] = None
         self.export_stats = {
             "repository": {"status": "pending"},
@@ -100,7 +102,7 @@ class ExportAgent(BaseAgent):
             self.log_event("INFO", f"Resuming export: {progress['completed']}/{progress['total_components']} components completed")
         
         # Initialize GitLab client
-        self.gl_client = GitLabClient(
+        self.gitlab_client = GitLabClient(
             base_url=inputs["gitlab_url"],
             token=inputs["gitlab_token"],
             max_requests_per_minute=inputs.get("max_requests_per_minute", 300)
@@ -116,7 +118,7 @@ class ExportAgent(BaseAgent):
             
             # Get project details first
             self.log_event("INFO", "Fetching project details")
-            project = await self.gl_client.get_project(project_id)
+            project = await self.gitlab_client.get_project(project_id)
             project_path = project.get('path_with_namespace', str(project_id))
             
             # Store project info in checkpoint
@@ -239,8 +241,17 @@ class ExportAgent(BaseAgent):
         
         finally:
             # Close GitLab client
-            if self.gl_client:
-                await self.gl_client.close()
+            if self.gitlab_client:
+                await self.gitlab_client.close()
+    
+    def _sanitize_error_message(self, error_msg: str, token: str) -> str:
+        """Remove sensitive information from error messages"""
+        # Replace token with placeholder
+        if token and token in error_msg:
+            error_msg = error_msg.replace(token, "***TOKEN***")
+        # Replace common auth patterns
+        error_msg = error_msg.replace("oauth2:", "***AUTH***:")
+        return error_msg
     
     def _create_directory_structure(self, output_dir: Path):
         """Create export directory structure"""
@@ -279,7 +290,7 @@ class ExportAgent(BaseAgent):
                 return {"success": False, "error": "No repository URL found"}
             
             # Add authentication to URL
-            auth_url = http_url.replace('://', f'://oauth2:{self.gl_client.token}@')
+            auth_url = http_url.replace('://', f'://oauth2:{self.gitlab_client.token}@')
             
             self.log_event("INFO", f"Creating git bundle from {http_url}")
             
@@ -287,24 +298,28 @@ class ExportAgent(BaseAgent):
             temp_dir = repo_dir / "temp_clone"
             temp_dir.mkdir(parents=True, exist_ok=True)
             
+            # Get timeout from config or use defaults
+            clone_timeout = 600  # 10 minutes for large repos
+            bundle_timeout = 300  # 5 minutes for bundle creation
+            
             try:
                 # Clone repository (bare)
-                subprocess.run(
+                result = subprocess.run(
                     ['git', 'clone', '--mirror', auth_url, str(temp_dir)],
                     check=True,
                     capture_output=True,
                     text=True,
-                    timeout=300
+                    timeout=clone_timeout
                 )
                 
                 # Create bundle
-                subprocess.run(
+                result = subprocess.run(
                     ['git', 'bundle', 'create', str(bundle_path), '--all'],
                     cwd=temp_dir,
                     check=True,
                     capture_output=True,
                     text=True,
-                    timeout=300
+                    timeout=bundle_timeout
                 )
                 
                 # Export submodule info if present
@@ -320,34 +335,38 @@ class ExportAgent(BaseAgent):
                         submodules_path = repo_dir / "submodules.txt"
                         with open(submodules_path, 'w') as f:
                             f.write(result.stdout)
-                except:
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
                     pass  # No submodules or error reading them
                 
                 # Check for LFS
-                has_lfs = await self.gl_client.has_lfs(project_id)
+                has_lfs = await self.gitlab_client.has_lfs(project_id)
                 if has_lfs:
                     lfs_info = repo_dir / "lfs_detected.txt"
                     with open(lfs_info, 'w') as f:
                         f.write("Git LFS detected. LFS objects need to be fetched separately.\n")
                 
+                # Build artifacts list safely
+                artifacts = [str(bundle_path.relative_to(output_dir.parent))]
+                if has_lfs:
+                    artifacts.append(str((repo_dir / "lfs_detected.txt").relative_to(output_dir.parent)))
+                
                 return {
                     "success": True,
-                    "artifacts": [
-                        str(bundle_path.relative_to(output_dir.parent)),
-                        str((repo_dir / "lfs_detected.txt").relative_to(output_dir.parent)) if has_lfs else None
-                    ]
+                    "artifacts": artifacts
                 }
                 
             finally:
                 # Cleanup temporary clone
-                import shutil
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir, ignore_errors=True)
             
-        except subprocess.TimeoutExpired:
-            return {"success": False, "error": "Repository clone/bundle timed out"}
+        except subprocess.TimeoutExpired as e:
+            error = f"Repository operation timed out: {e.cmd[0] if e.cmd else 'unknown'}"
+            return {"success": False, "error": error}
         except subprocess.CalledProcessError as e:
-            return {"success": False, "error": f"Git command failed: {e.stderr}"}
+            # Sanitize error message
+            error = self._sanitize_error_message(str(e.stderr), self.gitlab_client.token)
+            return {"success": False, "error": f"Git command failed: {error}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
     
@@ -362,7 +381,7 @@ class ExportAgent(BaseAgent):
             ci_dir = output_dir / "ci"
             
             # Export .gitlab-ci.yml
-            gitlab_ci_content = await self.gl_client.get_file_content(
+            gitlab_ci_content = await self.gitlab_client.get_file_content(
                 project_id,
                 '.gitlab-ci.yml'
             )
@@ -372,7 +391,7 @@ class ExportAgent(BaseAgent):
                     f.write(gitlab_ci_content)
             
             # Export variables metadata (not values for security)
-            variables = await self.gl_client.list_variables(project_id)
+            variables = await self.gitlab_client.list_variables(project_id)
             variables_safe = []
             for var in variables:
                 variables_safe.append({
@@ -388,17 +407,17 @@ class ExportAgent(BaseAgent):
                 json.dump(variables_safe, f, indent=2)
             
             # Export environments
-            environments = await self.gl_client.list_environments(project_id)
+            environments = await self.gitlab_client.list_environments(project_id)
             with open(ci_dir / "environments.json", 'w') as f:
                 json.dump(environments, f, indent=2)
             
             # Export schedules
-            schedules = await self.gl_client.list_pipeline_schedules(project_id)
+            schedules = await self.gitlab_client.list_pipeline_schedules(project_id)
             with open(ci_dir / "schedules.json", 'w') as f:
                 json.dump(schedules, f, indent=2)
             
             # Export recent pipeline history
-            pipelines = await self.gl_client.list_pipelines(project_id, max_count=100)
+            pipelines = await self.gitlab_client.list_pipelines(project_id, max_count=100)
             with open(ci_dir / "pipeline_history.json", 'w') as f:
                 json.dump(pipelines, f, indent=2)
             
@@ -429,7 +448,7 @@ class ExportAgent(BaseAgent):
             
             skip_until_found = last_processed is not None
             
-            async for issue in self.gl_client.list_issues(project_id):
+            async for issue in self.gitlab_client.list_issues(project_id):
                 issue_iid = issue['iid']
                 
                 # Skip until we find the last processed issue
@@ -439,10 +458,10 @@ class ExportAgent(BaseAgent):
                     continue
                 
                 # Get full issue details
-                full_issue = await self.gl_client.get_issue(project_id, issue_iid)
+                full_issue = await self.gitlab_client.get_issue(project_id, issue_iid)
                 
                 # Get comments/notes
-                notes = await self.gl_client.list_issue_notes(project_id, issue_iid)
+                notes = await self.gitlab_client.list_issue_notes(project_id, issue_iid)
                 full_issue['notes'] = notes
                 
                 all_issues.append(full_issue)
@@ -488,7 +507,7 @@ class ExportAgent(BaseAgent):
             
             skip_until_found = last_processed is not None
             
-            async for mr in self.gl_client.list_merge_requests(project_id):
+            async for mr in self.gitlab_client.list_merge_requests(project_id):
                 mr_iid = mr['iid']
                 
                 # Skip until we find the last processed MR
@@ -498,14 +517,14 @@ class ExportAgent(BaseAgent):
                     continue
                 
                 # Get full MR details
-                full_mr = await self.gl_client.get_merge_request(project_id, mr_iid)
+                full_mr = await self.gitlab_client.get_merge_request(project_id, mr_iid)
                 
                 # Get discussions
-                discussions = await self.gl_client.list_merge_request_discussions(project_id, mr_iid)
+                discussions = await self.gitlab_client.list_merge_request_discussions(project_id, mr_iid)
                 full_mr['discussions'] = discussions
                 
                 # Get approvals
-                approvals = await self.gl_client.list_merge_request_approvals(project_id, mr_iid)
+                approvals = await self.gitlab_client.list_merge_request_approvals(project_id, mr_iid)
                 full_mr['approvals'] = approvals
                 
                 all_mrs.append(full_mr)
@@ -555,7 +574,7 @@ class ExportAgent(BaseAgent):
             
             # Wiki URL is typically project_url + .wiki.git
             wiki_url = http_url.replace('.git', '.wiki.git')
-            auth_wiki_url = wiki_url.replace('://', f'://oauth2:{self.gl_client.token}@')
+            auth_wiki_url = wiki_url.replace('://', f'://oauth2:{self.gitlab_client.token}@')
             
             bundle_path = wiki_dir / "wiki.git"
             temp_dir = wiki_dir / "temp_wiki_clone"
@@ -611,7 +630,7 @@ class ExportAgent(BaseAgent):
         try:
             releases_dir = output_dir / "releases"
             
-            releases = await self.gl_client.list_releases(project_id)
+            releases = await self.gitlab_client.list_releases(project_id)
             
             with open(releases_dir / "releases.json", 'w') as f:
                 json.dump(releases, f, indent=2)
@@ -634,7 +653,7 @@ class ExportAgent(BaseAgent):
         try:
             packages_dir = output_dir / "packages"
             
-            packages = await self.gl_client.list_packages(project_id)
+            packages = await self.gitlab_client.list_packages(project_id)
             
             with open(packages_dir / "packages.json", 'w') as f:
                 json.dump(packages, f, indent=2)
@@ -659,22 +678,22 @@ class ExportAgent(BaseAgent):
             settings_dir = output_dir / "settings"
             
             # Export protected branches
-            protected_branches = await self.gl_client.list_protected_branches(project_id)
+            protected_branches = await self.gitlab_client.list_protected_branches(project_id)
             with open(settings_dir / "protected_branches.json", 'w') as f:
                 json.dump(protected_branches, f, indent=2)
             
             # Export protected tags
-            protected_tags = await self.gl_client.list_protected_tags(project_id)
+            protected_tags = await self.gitlab_client.list_protected_tags(project_id)
             with open(settings_dir / "protected_tags.json", 'w') as f:
                 json.dump(protected_tags, f, indent=2)
             
             # Export members
-            members = await self.gl_client.list_project_members(project_id)
+            members = await self.gitlab_client.list_project_members(project_id)
             with open(settings_dir / "members.json", 'w') as f:
                 json.dump(members, f, indent=2)
             
             # Export webhooks (mask secrets)
-            webhooks = await self.gl_client.list_webhooks(project_id)
+            webhooks = await self.gitlab_client.list_webhooks(project_id)
             for hook in webhooks:
                 if 'token' in hook:
                     hook['token'] = '***MASKED***'
@@ -682,13 +701,16 @@ class ExportAgent(BaseAgent):
                 json.dump(webhooks, f, indent=2)
             
             # Export deploy keys (mask private keys)
-            deploy_keys = await self.gl_client.list_deploy_keys(project_id)
+            deploy_keys = await self.gitlab_client.list_deploy_keys(project_id)
             for key in deploy_keys:
                 if 'key' in key:
-                    # Keep only first and last few characters
+                    # Always mask keys for security
                     full_key = key['key']
-                    if len(full_key) > 20:
-                        key['key'] = full_key[:10] + '...' + full_key[-10:]
+                    if len(full_key) > 30:
+                        key['key'] = full_key[:15] + '...' + full_key[-15:]
+                    else:
+                        # For shorter keys, just show prefix
+                        key['key'] = full_key[:min(10, len(full_key))] + '***MASKED***'
             with open(settings_dir / "deploy_keys.json", 'w') as f:
                 json.dump(deploy_keys, f, indent=2)
             
