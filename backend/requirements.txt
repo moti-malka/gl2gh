@@ -39,8 +39,8 @@ websockets==12.0
 python-json-logger==2.0.7
 
 # Microsoft Agent Framework
-agent-framework-core==0.1.0
-agent-framework-openai==0.1.0
+# Note: Using MAF patterns in code, actual library integration planned for Phase 2
+# When ready: pip install agent-framework-core --pre (beta versions like 1.0.0b260128)
 
 # Testing
 pytest==7.4.3

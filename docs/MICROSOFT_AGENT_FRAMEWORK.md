@@ -2,17 +2,44 @@
 
 ## Overview
 
-The gl2gh migration platform now uses **Microsoft Agent Framework (MAF)** for agent implementation and orchestration. This provides enterprise-grade AI agent capabilities with robust patterns for building production-ready migration agents.
+The gl2gh migration platform implements **Microsoft Agent Framework (MAF) patterns** for agent architecture and orchestration. This provides enterprise-grade structure for building production-ready migration agents.
+
+## Current Implementation Status
+
+### Phase 1: MAF Patterns (CURRENT) ✅
+
+We currently implement MAF **patterns and principles** without using the library directly:
+- ✅ Agent abstractions with clear contracts
+- ✅ Workflow orchestration (sequential, conditional)
+- ✅ Tool integration patterns (GitLab API, GitHub API)
+- ✅ Context management across agents
+- ✅ Error handling and retry logic
+- ✅ Deterministic, resumable workflows
+
+**Why not the library yet?**
+- MAF Python package is in beta (versions like `1.0.0b260128`)
+- Platform can be developed and tested independently
+- Easy to integrate MAF library when ready in Phase 2
+
+### Phase 2: MAF Library Integration (PLANNED) 🔄
+
+Future integration with actual MAF library using [Azure AI examples](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/README.md) as reference.
 
 ## What is Microsoft Agent Framework?
 
-Microsoft Agent Framework is an open-source framework for building production-ready AI agents with:
+Microsoft Agent Framework is an open-source framework for building production-ready AI agents:
 
 - **Agent Abstractions**: Specialized AI entities with reasoning and tool-calling capabilities
 - **Workflow Orchestration**: Sequential, parallel, and conditional agent coordination
 - **Tool Integration**: Connect agents to APIs, databases, and external systems
 - **Context Management**: Share state and memory across agent interactions
 - **Enterprise Features**: Observability, security, and robust error handling
+
+**Official Resources:**
+- [GitHub Repository](https://github.com/microsoft/agent-framework)
+- [Azure AI Samples](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/README.md)
+- [Documentation](https://learn.microsoft.com/en-us/agent-framework/)
+- [Python Quick Start](https://learn.microsoft.com/en-us/agent-framework/tutorials/quick-start)
 
 ## Agent Architecture
 
@@ -362,16 +389,137 @@ agent.memory.store("user_mapping", {
     "gitlab_user_123": "github_user_456"
 })
 
-mapping = agent.memory.recall("user_mapping")
+memory = agent.memory.recall("user_mapping")
 ```
 
-## Dependencies
+## Current Dependencies
 
-Required packages (already in requirements.txt):
+Already in `backend/requirements.txt`:
 
 ```txt
-agent-framework-core==0.1.0
-agent-framework-openai==0.1.0  # For future LLM integration
+# Core platform dependencies (no MAF library yet)
+fastapi==0.109.1
+motor==3.3.2
+celery==5.3.4
+redis==5.0.1
+# ... other packages
+
+# Microsoft Agent Framework (Phase 2 - Future)
+# When ready: pip install agent-framework-core --pre
+# Latest beta: 1.0.0b260128
+```
+
+## Agent Examples from Microsoft
+
+The Microsoft Agent Framework repository provides comprehensive examples:
+
+**Basic Agent Creation:**
+- [`azure_ai_basic.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_basic.py) - Simplest agent with streaming
+- [`azure_ai_provider_methods.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_provider_methods.py) - Provider methods guide
+
+**Advanced Patterns:**
+- [`azure_ai_with_agent_as_tool.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_with_agent_as_tool.py) - Agent-as-tool pattern
+- [`azure_ai_with_thread.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_with_thread.py) - Thread management
+- [`azure_ai_with_code_interpreter.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_with_code_interpreter.py) - Code execution
+
+**Search & Retrieval:**
+- [`azure_ai_with_file_search.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_with_file_search.py) - File search tool
+- [`azure_ai_with_web_search.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_with_web_search.py) - Web search
+- [`azure_ai_with_bing_grounding.py`](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/azure_ai_with_bing_grounding.py) - Bing grounding
+
+These examples will be used as reference when implementing Phase 2 MAF library integration.
+
+## Phase 2: MAF Library Integration Plan
+
+When ready to integrate the actual Microsoft Agent Framework library:
+
+### Step 1: Install MAF Beta Packages
+
+```bash
+# Install from PyPI with --pre flag for beta versions
+pip install agent-framework-core --pre
+pip install agent-framework-azure --pre  # Optional: For Azure AI integration
+```
+
+Latest beta version: `1.0.0b260128` (January 2026)
+
+### Step 2: Refactor Agents to Use MAF Classes
+
+Based on [Azure AI examples](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/README.md):
+
+```python
+from agent_framework import ChatAgent
+from agent_framework.azure import AzureAIProjectAgentProvider
+
+class DiscoveryAgent(ChatAgent):
+    def __init__(self):
+        super().__init__(
+            instructions="Scan GitLab groups/projects and build inventory...",
+            tools=[gitlab_api_tool]
+        )
+```
+
+### Step 3: Add Function Tools
+
+Convert API calls to function tools:
+
+```python
+@agent.function_tool
+def get_gitlab_project(project_id: int) -> dict:
+    """Get GitLab project details"""
+    return gitlab_client.projects.get(project_id)
+
+@agent.function_tool  
+def list_gitlab_groups(parent_id: Optional[int] = None) -> List[dict]:
+    """List GitLab groups"""
+    return gitlab_client.groups.list(parent_id=parent_id)
+```
+
+### Step 4: Add Azure AI Integration (Optional)
+
+```python
+from azure.identity import DefaultAzureCredential
+from agent_framework.azure import AzureAIProjectAgentProvider
+
+provider = AzureAIProjectAgentProvider(
+    endpoint=os.environ["AZURE_AI_PROJECT_ENDPOINT"],
+    credential=DefaultAzureCredential()
+)
+
+agent = provider.create_agent(
+    name="DiscoveryAgent",
+    instructions="...",
+    tools=[...]
+)
+```
+
+### Step 5: Add Thread Management
+
+For conversation persistence:
+
+```python
+# Create thread for multi-turn conversations
+thread = agent.create_thread()
+
+# Run agent with thread context
+response = await agent.run(
+    thread_id=thread.id,
+    message="Discover projects in group 'mygroup'"
+)
+
+# Continue conversation
+response = await agent.run(
+    thread_id=thread.id,
+    message="Show me projects with CI/CD"
+)
+```
+
+### Step 6: Enable Streaming (Optional)
+
+```python
+async for event in agent.run_stream(thread_id=thread.id, message="..."):
+    if event.type == "message_delta":
+        print(event.data.content, end="")
 ```
 
 ## Testing
@@ -400,24 +548,29 @@ async def test_discovery_agent():
 
 ## Benefits of MAF Integration
 
-1. **Enterprise Ready**: Production-grade patterns out of the box
-2. **Scalable**: Support for parallel execution and distributed agents
-3. **Observable**: Built-in logging and event tracking
-4. **Extensible**: Easy to add new agents and tools
-5. **Resumable**: Workflow checkpointing and recovery
-6. **Deterministic**: Same inputs → same outputs
-7. **Maintainable**: Clear separation of concerns
-8. **Testable**: Each agent independently testable
+### Current (Phase 1) ✅
+1. **Production Patterns**: MAF-inspired architecture
+2. **Deterministic**: Same inputs → same outputs
+3. **Resumable**: Workflow checkpointing
+4. **Observable**: Structured logging and events
+5. **Maintainable**: Clear separation of concerns
+6. **Testable**: Each agent independently testable
 
-## Migration from Previous Implementation
-
-The new MAF-based agents are backward compatible. The Celery tasks expose the same interface, just with improved internal implementation using MAF patterns.
+### Future (Phase 2) 🔄
+7. **LLM Intelligence**: Optional AI-powered agents
+8. **Tool Calling**: Automatic function discovery
+9. **Thread Management**: Conversation persistence
+10. **Streaming**: Real-time response streaming
+11. **Azure Integration**: Hosted agent runtime
+12. **Multi-Agent**: Agent-to-agent communication
 
 ## References
 
-- [Microsoft Agent Framework Documentation](https://learn.microsoft.com/en-us/agent-framework/)
-- [GitHub Repository](https://github.com/microsoft/agent-framework)
+- [Microsoft Agent Framework GitHub](https://github.com/microsoft/agent-framework)
+- [Azure AI Samples](https://github.com/microsoft/agent-framework/blob/main/python/samples/getting_started/agents/azure_ai/README.md)
+- [MAF Documentation](https://learn.microsoft.com/en-us/agent-framework/)
 - [Python Quick Start](https://learn.microsoft.com/en-us/agent-framework/tutorials/quick-start)
+- [PyPI Package](https://pypi.org/project/agent-framework-core/)
 
 ## Support
 
