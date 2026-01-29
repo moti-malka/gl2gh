@@ -2,7 +2,6 @@
 
 import pytest
 from app.main import socket_app, sio, run_subscriptions, broadcast_run_update
-import asyncio
 
 
 @pytest.mark.asyncio

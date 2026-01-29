@@ -69,7 +69,7 @@ async def health_check():
 # Create Socket.IO server
 sio = socketio.AsyncServer(
     async_mode='asgi',
-    cors_allowed_origins='*',
+    cors_allowed_origins=settings.CORS_ORIGINS,
     logger=False,
     engineio_logger=False
 )
@@ -81,37 +81,70 @@ run_subscriptions = {}
 @sio.event
 async def connect(sid, environ, auth):
     """Handle client connection"""
-    logger.info(f"Socket.IO client connected: {sid}")
-    run_subscriptions[sid] = set()
-    return True
+    try:
+        logger.info(f"Socket.IO client connected: {sid}")
+        run_subscriptions[sid] = set()
+        return True
+    except Exception as e:
+        logger.error(f"Error handling connection for {sid}: {e}")
+        return False
 
 
 @sio.event
 async def disconnect(sid):
     """Handle client disconnection"""
-    logger.info(f"Socket.IO client disconnected: {sid}")
-    if sid in run_subscriptions:
-        del run_subscriptions[sid]
+    try:
+        logger.info(f"Socket.IO client disconnected: {sid}")
+        if sid in run_subscriptions:
+            del run_subscriptions[sid]
+    except Exception as e:
+        logger.error(f"Error handling disconnection for {sid}: {e}")
 
 
 @sio.event
 async def subscribe_run(sid, data):
     """Subscribe to run updates"""
-    run_id = data.get('run_id')
-    if run_id:
-        run_subscriptions.setdefault(sid, set()).add(run_id)
+    try:
+        if not data or not isinstance(data, dict):
+            await sio.emit('error', {'message': 'Invalid data format'}, room=sid)
+            return
+        
+        run_id = data.get('run_id')
+        if not run_id or not isinstance(run_id, str):
+            await sio.emit('error', {'message': 'Invalid or missing run_id'}, room=sid)
+            return
+        
+        if sid not in run_subscriptions:
+            run_subscriptions[sid] = set()
+        
+        run_subscriptions[sid].add(run_id)
         logger.debug(f"Client {sid} subscribed to run {run_id}")
         await sio.emit('subscribed', {'run_id': run_id}, room=sid)
+    except Exception as e:
+        logger.error(f"Error in subscribe_run for {sid}: {e}")
+        await sio.emit('error', {'message': 'Failed to subscribe to run'}, room=sid)
 
 
 @sio.event
 async def unsubscribe_run(sid, data):
     """Unsubscribe from run updates"""
-    run_id = data.get('run_id')
-    if run_id and sid in run_subscriptions:
-        run_subscriptions[sid].discard(run_id)
-        logger.debug(f"Client {sid} unsubscribed from run {run_id}")
-        await sio.emit('unsubscribed', {'run_id': run_id}, room=sid)
+    try:
+        if not data or not isinstance(data, dict):
+            await sio.emit('error', {'message': 'Invalid data format'}, room=sid)
+            return
+        
+        run_id = data.get('run_id')
+        if not run_id or not isinstance(run_id, str):
+            await sio.emit('error', {'message': 'Invalid or missing run_id'}, room=sid)
+            return
+        
+        if sid in run_subscriptions:
+            run_subscriptions[sid].discard(run_id)
+            logger.debug(f"Client {sid} unsubscribed from run {run_id}")
+            await sio.emit('unsubscribed', {'run_id': run_id}, room=sid)
+    except Exception as e:
+        logger.error(f"Error in unsubscribe_run for {sid}: {e}")
+        await sio.emit('error', {'message': 'Failed to unsubscribe from run'}, room=sid)
 
 
 async def broadcast_run_update(run_id: str, data: dict):
@@ -122,9 +155,15 @@ async def broadcast_run_update(run_id: str, data: dict):
         run_id: Run ID
         data: Update data to broadcast
     """
-    for sid, subscribed_runs in run_subscriptions.items():
+    # Create a snapshot of subscriptions to avoid race conditions
+    subscriptions_snapshot = list(run_subscriptions.items())
+    
+    for sid, subscribed_runs in subscriptions_snapshot:
         if run_id in subscribed_runs:
-            await sio.emit('run_update', data, room=sid)
+            try:
+                await sio.emit('run_update', data, room=sid)
+            except Exception as e:
+                logger.error(f"Error broadcasting to {sid}: {e}")
 
 
 # Wrap FastAPI app with Socket.IO
