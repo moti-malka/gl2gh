@@ -1,0 +1,118 @@
+{
+  "repository": {
+    "name": "example-migration",
+    "description": "Example GitLab to GitHub migration",
+    "visibility": "public",
+    "default_branch": "main",
+    "branches": ["main", "develop", "feature/new-ui"],
+    "has_lfs": true,
+    "lfs_objects": ["assets/large-image.png", "assets/video.mp4"]
+  },
+  "labels": [
+    {"name": "bug", "color": "d73a4a", "description": "Something isn't working"},
+    {"name": "enhancement", "color": "a2eeef", "description": "New feature or request"},
+    {"name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation"},
+    {"name": "priority-high", "color": "ff0000", "description": "High priority"}
+  ],
+  "milestones": [
+    {"id": 1, "title": "v1.0.0", "description": "First stable release", "due_date": "2024-12-31"},
+    {"id": 2, "title": "v2.0.0", "description": "Major refactor", "due_date": "2025-06-30"}
+  ],
+  "issues": [
+    {
+      "number": 1,
+      "title": "Setup CI/CD pipeline",
+      "body": "We need to migrate our GitLab CI configuration to GitHub Actions.",
+      "labels": ["enhancement", "priority-high"],
+      "milestone": "v1.0.0",
+      "assignees": ["developer1"],
+      "comments": [
+        {"id": 1, "body": "Working on this now", "author": "developer1", "created_at": "2024-01-15T10:00:00Z"}
+      ]
+    },
+    {
+      "number": 2,
+      "title": "Update documentation",
+      "body": "Migration documentation needs to be updated.",
+      "labels": ["documentation"],
+      "milestone": "v1.0.0",
+      "assignees": [],
+      "comments": []
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 1,
+      "title": "Add GitHub Actions workflow",
+      "body": "This PR adds the initial CI workflow",
+      "head": "feature/new-ui",
+      "base": "main",
+      "labels": ["enhancement"],
+      "comments": [
+        {"id": 1, "body": "LGTM!", "commit_id": "abc123", "path": null, "position": null}
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "name": "ci.yml",
+      "path": ".github/workflows/ci.yml",
+      "content": "name: CI\non:\n  push:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v2\n      - name: Run tests\n        run: npm test"
+    }
+  ],
+  "environments": [
+    {"name": "production"},
+    {"name": "staging"}
+  ],
+  "secrets": [
+    {"name": "API_KEY", "scope": "repository"},
+    {"name": "DATABASE_URL", "scope": "repository"}
+  ],
+  "variables": [
+    {"name": "NODE_ENV", "value": "production"},
+    {"name": "LOG_LEVEL", "value": "info"}
+  ],
+  "wiki": {
+    "enabled": true,
+    "pages": [
+      {"title": "Home", "content": "Welcome to our wiki"},
+      {"title": "Installation", "content": "How to install"}
+    ]
+  },
+  "releases": [
+    {
+      "tag_name": "v0.9.0",
+      "name": "Beta Release",
+      "body": "Pre-release version for testing",
+      "draft": false,
+      "prerelease": true,
+      "assets": [
+        {"name": "app-v0.9.0.zip", "path": "/tmp/app-v0.9.0.zip"}
+      ]
+    }
+  ],
+  "branch_protections": [
+    {
+      "branch": "main",
+      "required_reviews": 2,
+      "require_code_owner_reviews": true,
+      "dismiss_stale_reviews": true,
+      "require_status_checks": ["ci/test", "ci/lint"]
+    }
+  ],
+  "collaborators": [
+    {"username": "developer1", "permission": "push"},
+    {"username": "developer2", "permission": "admin"}
+  ],
+  "webhooks": [
+    {
+      "url": "https://example.com/webhook",
+      "events": ["push", "pull_request", "issues"],
+      "content_type": "json"
+    }
+  ],
+  "preservation_artifacts": {
+    "gitlab_ci_yml": "original .gitlab-ci.yml content",
+    "gitlab_metadata": {"project_id": 12345, "namespace": "myorg"}
+  }
+}
