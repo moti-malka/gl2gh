@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from app.models import User
 from app.services import ProjectService
 from app.api.dependencies import get_current_active_user, require_operator
+from app.utils.security import sanitize_project_settings
 
 router = APIRouter()
 
@@ -56,7 +57,7 @@ async def create_project(
             description=created_project.description,
             created_at=created_project.created_at.isoformat(),
             updated_at=created_project.updated_at.isoformat(),
-            settings=created_project.settings.model_dump(),
+            settings=sanitize_project_settings(created_project.settings.model_dump()),
             status=created_project.status,
             created_by=str(created_project.created_by)
         )
@@ -94,7 +95,7 @@ async def list_projects(
             description=p.description,
             created_at=p.created_at.isoformat(),
             updated_at=p.updated_at.isoformat(),
-            settings=p.settings.model_dump(),
+            settings=sanitize_project_settings(p.settings.model_dump()),
             status=p.status,
             created_by=str(p.created_by)
         )
@@ -130,7 +131,7 @@ async def get_project(
         description=project.description,
         created_at=project.created_at.isoformat(),
         updated_at=project.updated_at.isoformat(),
-        settings=project.settings.model_dump(),
+        settings=sanitize_project_settings(project.settings.model_dump()),
         status=project.status,
         created_by=str(project.created_by)
     )
@@ -177,7 +178,7 @@ async def update_project(
             description=project.description,
             created_at=project.created_at.isoformat(),
             updated_at=project.updated_at.isoformat(),
-            settings=project.settings.model_dump(),
+            settings=sanitize_project_settings(project.settings.model_dump()),
             status=project.status,
             created_by=str(project.created_by)
         )
@@ -195,7 +196,7 @@ async def update_project(
         description=updated_project.description,
         created_at=updated_project.created_at.isoformat(),
         updated_at=updated_project.updated_at.isoformat(),
-        settings=updated_project.settings.model_dump(),
+        settings=sanitize_project_settings(updated_project.settings.model_dump()),
         status=updated_project.status,
         created_by=str(updated_project.created_by)
     )
