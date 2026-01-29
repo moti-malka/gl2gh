@@ -8,6 +8,7 @@ from app.models import User
 from app.services import RunService, ArtifactService
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
+from app.workers.tasks import run_migration
 
 router = APIRouter()
 
@@ -68,6 +69,9 @@ async def create_run(
             mode=run.mode,
             config=config
         )
+        
+        # Dispatch Celery task to start the migration/discovery process
+        run_migration.delay(str(created_run.id), run.mode, config)
         
         return RunResponse(
             id=str(created_run.id),

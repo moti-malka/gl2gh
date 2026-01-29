@@ -160,3 +160,63 @@ async def test_login_wrong_password(client):
     }
     response = await client.post("/api/auth/login", json=login_data)
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_run_dispatches_task(client, monkeypatch):
+    """Test that creating a run dispatches the Celery task"""
+    from unittest.mock import Mock, patch
+    
+    # Register and login
+    register_data = {
+        "username": "runtest",
+        "email": "runtest@example.com",
+        "password": "testpass123"
+    }
+    await client.post("/api/auth/register", json=register_data)
+    
+    login_data = {
+        "username": "runtest",
+        "password": "testpass123"
+    }
+    response = await client.post("/api/auth/login", json=login_data)
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create project
+    project_data = {
+        "name": "Run Test Project",
+        "description": "For testing run creation"
+    }
+    response = await client.post("/api/projects", json=project_data, headers=headers)
+    assert response.status_code == 201
+    project_id = response.json()["id"]
+    
+    # Mock the Celery task
+    with patch('app.api.runs.run_migration') as mock_task:
+        mock_task.delay = Mock()
+        
+        # Create run
+        run_data = {
+            "mode": "PLAN_ONLY",
+            "deep": True,
+            "deep_top_n": 20
+        }
+        response = await client.post(
+            f"/api/projects/{project_id}/runs",
+            json=run_data,
+            headers=headers
+        )
+        
+        # Verify response
+        assert response.status_code == 201
+        run_response = response.json()
+        assert run_response["status"] == "CREATED"
+        assert run_response["mode"] == "PLAN_ONLY"
+        
+        # Verify task was dispatched
+        mock_task.delay.assert_called_once()
+        call_args = mock_task.delay.call_args[0]
+        assert call_args[0] == run_response["id"]  # run_id
+        assert call_args[1] == "PLAN_ONLY"  # mode
+        assert call_args[2]["deep"] is True  # config
