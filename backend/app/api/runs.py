@@ -179,6 +179,9 @@ async def resume_run(
             detail="Cannot resume run (must be FAILED or CANCELED)"
         )
     
+    # Dispatch Celery task to resume the migration/discovery process
+    run_migration.delay(str(resumed_run.id), resumed_run.mode, resumed_run.config_snapshot)
+    
     return {"message": "Run resumed successfully", "run_id": run_id}
 
 

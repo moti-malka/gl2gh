@@ -220,3 +220,72 @@ async def test_create_run_dispatches_task(client, monkeypatch):
         assert call_args[0] == run_response["id"]  # run_id
         assert call_args[1] == "PLAN_ONLY"  # mode
         assert call_args[2]["deep"] is True  # config
+
+
+@pytest.mark.asyncio
+async def test_resume_run_dispatches_task(client):
+    """Test that resuming a run dispatches the Celery task"""
+    from unittest.mock import Mock, patch
+    
+    # Register and login
+    register_data = {
+        "username": "resumetest",
+        "email": "resumetest@example.com",
+        "password": "testpass123"
+    }
+    await client.post("/api/auth/register", json=register_data)
+    
+    login_data = {
+        "username": "resumetest",
+        "password": "testpass123"
+    }
+    response = await client.post("/api/auth/login", json=login_data)
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create project
+    project_data = {
+        "name": "Resume Test Project",
+        "description": "For testing run resume"
+    }
+    response = await client.post("/api/projects", json=project_data, headers=headers)
+    project_id = response.json()["id"]
+    
+    # Mock the Celery task for create_run
+    with patch('app.api.runs.run_migration') as mock_task:
+        mock_task.delay = Mock()
+        
+        # Create run
+        run_data = {"mode": "FULL"}
+        response = await client.post(
+            f"/api/projects/{project_id}/runs",
+            json=run_data,
+            headers=headers
+        )
+        run_id = response.json()["id"]
+    
+    # Simulate run failure by updating run status directly
+    from app.services import RunService
+    run_service = RunService()
+    await run_service.update_run_status(run_id, "FAILED", stage="DISCOVER")
+    
+    # Mock the Celery task for resume
+    with patch('app.api.runs.run_migration') as mock_task:
+        mock_task.delay = Mock()
+        
+        # Resume run
+        response = await client.post(
+            f"/api/runs/{run_id}/resume",
+            json={},
+            headers=headers
+        )
+        
+        # Verify response
+        assert response.status_code == 200
+        assert response.json()["message"] == "Run resumed successfully"
+        
+        # Verify task was dispatched
+        mock_task.delay.assert_called_once()
+        call_args = mock_task.delay.call_args[0]
+        assert call_args[0] == run_id  # run_id
+        assert call_args[1] == "FULL"  # mode
