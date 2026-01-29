@@ -100,11 +100,13 @@ class TransformAgent(BaseAgent):
                 export_data.get("gitlab_ci_yaml"),
                 output_dir
             )
-            if workflows_result:
-                artifacts.extend(workflows_result.get("artifacts", []))
-                all_warnings.extend(workflows_result.get("warnings", []))
-                if not workflows_result.get("success"):
-                    all_errors.extend(workflows_result.get("errors", []))
+            if workflows_result and workflows_result.get("artifacts"):
+                artifacts.extend(workflows_result["artifacts"])
+            if workflows_result and workflows_result.get("warnings"):
+                all_warnings.extend(workflows_result["warnings"])
+            if workflows_result and not workflows_result.get("success", True):
+                if workflows_result.get("errors"):
+                    all_errors.extend(workflows_result["errors"])
             
             # 2. Map users
             user_mappings_result = await self._map_users(
@@ -112,11 +114,13 @@ class TransformAgent(BaseAgent):
                 inputs.get("github_org_members", []),
                 output_dir
             )
-            if user_mappings_result:
-                artifacts.extend(user_mappings_result.get("artifacts", []))
-                all_warnings.extend(user_mappings_result.get("warnings", []))
-                if not user_mappings_result.get("success"):
-                    all_errors.extend(user_mappings_result.get("errors", []))
+            if user_mappings_result and user_mappings_result.get("artifacts"):
+                artifacts.extend(user_mappings_result["artifacts"])
+            if user_mappings_result and user_mappings_result.get("warnings"):
+                all_warnings.extend(user_mappings_result["warnings"])
+            if user_mappings_result and not user_mappings_result.get("success", True):
+                if user_mappings_result.get("errors"):
+                    all_errors.extend(user_mappings_result["errors"])
             
             # Set user mappings in content transformer
             if user_mappings_result and user_mappings_result.get("mappings"):
@@ -129,11 +133,13 @@ class TransformAgent(BaseAgent):
                 github_repo,
                 output_dir
             )
-            if issues_result:
-                artifacts.extend(issues_result.get("artifacts", []))
-                all_warnings.extend(issues_result.get("warnings", []))
-                if not issues_result.get("success"):
-                    all_errors.extend(issues_result.get("errors", []))
+            if issues_result and issues_result.get("artifacts"):
+                artifacts.extend(issues_result["artifacts"])
+            if issues_result and issues_result.get("warnings"):
+                all_warnings.extend(issues_result["warnings"])
+            if issues_result and not issues_result.get("success", True):
+                if issues_result.get("errors"):
+                    all_errors.extend(issues_result["errors"])
             
             # 4. Transform merge requests
             mrs_result = await self._transform_merge_requests(
@@ -142,26 +148,28 @@ class TransformAgent(BaseAgent):
                 github_repo,
                 output_dir
             )
-            if mrs_result:
-                artifacts.extend(mrs_result.get("artifacts", []))
-                all_warnings.extend(mrs_result.get("warnings", []))
-                if not mrs_result.get("success"):
-                    all_errors.extend(mrs_result.get("errors", []))
+            if mrs_result and mrs_result.get("artifacts"):
+                artifacts.extend(mrs_result["artifacts"])
+            if mrs_result and mrs_result.get("warnings"):
+                all_warnings.extend(mrs_result["warnings"])
+            if mrs_result and not mrs_result.get("success", True):
+                if mrs_result.get("errors"):
+                    all_errors.extend(mrs_result["errors"])
             
             # 5. Transform labels and milestones
             labels_result = await self._transform_labels(
                 export_data.get("labels", []),
                 output_dir
             )
-            if labels_result:
-                artifacts.extend(labels_result.get("artifacts", []))
+            if labels_result and labels_result.get("artifacts"):
+                artifacts.extend(labels_result["artifacts"])
             
             milestones_result = await self._transform_milestones(
                 export_data.get("milestones", []),
                 output_dir
             )
-            if milestones_result:
-                artifacts.extend(milestones_result.get("artifacts", []))
+            if milestones_result and milestones_result.get("artifacts"):
+                artifacts.extend(milestones_result["artifacts"])
             
             # 6. Perform gap analysis
             gap_analysis_result = await self._analyze_gaps(
@@ -170,8 +178,8 @@ class TransformAgent(BaseAgent):
                 export_data.get("gitlab_features", []),
                 output_dir
             )
-            if gap_analysis_result:
-                artifacts.extend(gap_analysis_result.get("artifacts", []))
+            if gap_analysis_result and gap_analysis_result.get("artifacts"):
+                artifacts.extend(gap_analysis_result["artifacts"])
             
             # Determine overall status
             status = "success" if not all_errors else "partial"
