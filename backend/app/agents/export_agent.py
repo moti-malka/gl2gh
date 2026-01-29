@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
 from app.agents.base_agent import BaseAgent, AgentResult
+from app.agents.export_checkpoint import ExportCheckpoint
 from app.clients.gitlab_client import GitLabClient
 from app.utils.logging import get_logger
 
@@ -54,6 +55,7 @@ class ExportAgent(BaseAgent):
             """
         )
         self.gl_client: Optional[GitLabClient] = None
+        self.checkpoint: Optional[ExportCheckpoint] = None
         self.export_stats = {
             "repository": {"status": "pending"},
             "ci": {"status": "pending"},
@@ -85,8 +87,17 @@ class ExportAgent(BaseAgent):
         """Execute export process"""
         project_id = int(inputs['project_id'])
         output_dir = Path(inputs["output_dir"])
+        resume = inputs.get("resume", False)
         
-        self.log_event("INFO", f"Starting export for project {project_id}")
+        self.log_event("INFO", f"Starting export for project {project_id} (resume={resume})")
+        
+        # Initialize checkpoint
+        checkpoint_file = output_dir / ".export_checkpoint.json"
+        self.checkpoint = ExportCheckpoint(checkpoint_file)
+        
+        if resume:
+            progress = self.checkpoint.get_progress_summary()
+            self.log_event("INFO", f"Resuming export: {progress['completed']}/{progress['total_components']} components completed")
         
         # Initialize GitLab client
         self.gl_client = GitLabClient(
@@ -108,6 +119,10 @@ class ExportAgent(BaseAgent):
             project = await self.gl_client.get_project(project_id)
             project_path = project.get('path_with_namespace', str(project_id))
             
+            # Store project info in checkpoint
+            self.checkpoint.set_metadata("project_id", project_id)
+            self.checkpoint.set_metadata("project_path", project_path)
+            
             # Export components in sequence
             components = [
                 ("repository", self._export_repository),
@@ -121,8 +136,16 @@ class ExportAgent(BaseAgent):
             ]
             
             for component_name, export_func in components:
+                # Skip if already completed and resume is enabled
+                if resume and self.checkpoint.is_component_completed(component_name):
+                    self.log_event("INFO", f"Skipping {component_name} (already completed)")
+                    self.export_stats[component_name]["status"] = "completed"
+                    continue
+                
                 try:
                     self.log_event("INFO", f"Exporting {component_name}...")
+                    self.checkpoint.mark_component_started(component_name)
+                    
                     result = await export_func(project_id, project, output_dir)
                     
                     if result.get("success"):
@@ -131,6 +154,8 @@ class ExportAgent(BaseAgent):
                             self.export_stats[component_name]["count"] = result["count"]
                         if "artifacts" in result:
                             artifacts.extend(result["artifacts"])
+                        
+                        self.checkpoint.mark_component_completed(component_name, success=True)
                     else:
                         self.export_stats[component_name]["status"] = "partial"
                         if "error" in result:
@@ -138,14 +163,27 @@ class ExportAgent(BaseAgent):
                                 "component": component_name,
                                 "message": result["error"]
                             })
+                        
+                        self.checkpoint.mark_component_completed(
+                            component_name,
+                            success=False,
+                            error=result.get("error")
+                        )
                     
                 except Exception as e:
                     self.log_event("ERROR", f"Failed to export {component_name}: {e}")
                     self.export_stats[component_name]["status"] = "failed"
+                    error_msg = str(e)
                     errors.append({
                         "component": component_name,
-                        "message": str(e)
+                        "message": error_msg
                     })
+                    
+                    self.checkpoint.mark_component_completed(
+                        component_name,
+                        success=False,
+                        error=error_msg
+                    )
             
             # Generate export manifest
             manifest_path = output_dir / "export_manifest.json"
@@ -155,6 +193,7 @@ class ExportAgent(BaseAgent):
                 "exported_at": datetime.utcnow().isoformat(),
                 "gitlab_url": inputs["gitlab_url"],
                 "components": self.export_stats,
+                "checkpoint_summary": self.checkpoint.get_progress_summary(),
                 "errors": errors
             }
             
@@ -182,6 +221,7 @@ class ExportAgent(BaseAgent):
                     "project_id": project_id,
                     "project_path": project_path,
                     "export_stats": self.export_stats,
+                    "checkpoint_summary": self.checkpoint.get_progress_summary(),
                     "output_dir": str(output_dir)
                 },
                 artifacts=artifacts,
@@ -381,8 +421,22 @@ class ExportAgent(BaseAgent):
             issues_dir = output_dir / "issues"
             all_issues = []
             
+            # Check if resuming
+            last_processed = None
+            if self.checkpoint and self.checkpoint.should_resume_component("issues"):
+                last_processed = self.checkpoint.get_last_processed_item("issues")
+                self.log_event("INFO", f"Resuming issues export from iid {last_processed}")
+            
+            skip_until_found = last_processed is not None
+            
             async for issue in self.gl_client.list_issues(project_id):
                 issue_iid = issue['iid']
+                
+                # Skip until we find the last processed issue
+                if skip_until_found:
+                    if issue_iid == last_processed:
+                        skip_until_found = False
+                    continue
                 
                 # Get full issue details
                 full_issue = await self.gl_client.get_issue(project_id, issue_iid)
@@ -393,9 +447,15 @@ class ExportAgent(BaseAgent):
                 
                 all_issues.append(full_issue)
                 
-                # Emit progress event every 10 issues
+                # Update checkpoint progress every 10 issues
                 if len(all_issues) % 10 == 0:
                     self.log_event("INFO", f"Exported {len(all_issues)} issues...")
+                    if self.checkpoint:
+                        self.checkpoint.update_component_progress(
+                            "issues",
+                            processed_items=len(all_issues),
+                            last_item=issue_iid
+                        )
             
             # Save all issues
             with open(issues_dir / "issues.json", 'w') as f:
@@ -420,8 +480,22 @@ class ExportAgent(BaseAgent):
             mrs_dir = output_dir / "merge_requests"
             all_mrs = []
             
+            # Check if resuming
+            last_processed = None
+            if self.checkpoint and self.checkpoint.should_resume_component("merge_requests"):
+                last_processed = self.checkpoint.get_last_processed_item("merge_requests")
+                self.log_event("INFO", f"Resuming MRs export from iid {last_processed}")
+            
+            skip_until_found = last_processed is not None
+            
             async for mr in self.gl_client.list_merge_requests(project_id):
                 mr_iid = mr['iid']
+                
+                # Skip until we find the last processed MR
+                if skip_until_found:
+                    if mr_iid == last_processed:
+                        skip_until_found = False
+                    continue
                 
                 # Get full MR details
                 full_mr = await self.gl_client.get_merge_request(project_id, mr_iid)
@@ -436,9 +510,15 @@ class ExportAgent(BaseAgent):
                 
                 all_mrs.append(full_mr)
                 
-                # Emit progress event every 10 MRs
+                # Update checkpoint progress every 10 MRs
                 if len(all_mrs) % 10 == 0:
                     self.log_event("INFO", f"Exported {len(all_mrs)} merge requests...")
+                    if self.checkpoint:
+                        self.checkpoint.update_component_progress(
+                            "merge_requests",
+                            processed_items=len(all_mrs),
+                            last_item=mr_iid
+                        )
             
             # Save all MRs
             with open(mrs_dir / "merge_requests.json", 'w') as f:
