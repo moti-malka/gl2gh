@@ -163,7 +163,7 @@ async def test_login_wrong_password(client):
 
 
 @pytest.mark.asyncio
-async def test_create_run_dispatches_task(client, monkeypatch):
+async def test_create_run_dispatches_task(client):
     """Test that creating a run dispatches the Celery task"""
     from unittest.mock import Mock, patch
     
@@ -214,12 +214,13 @@ async def test_create_run_dispatches_task(client, monkeypatch):
         assert run_response["status"] == "CREATED"
         assert run_response["mode"] == "PLAN_ONLY"
         
-        # Verify task was dispatched
+        # Verify task was dispatched with correct parameters
         mock_task.delay.assert_called_once()
         call_args = mock_task.delay.call_args[0]
         assert call_args[0] == run_response["id"]  # run_id
         assert call_args[1] == "PLAN_ONLY"  # mode
         assert call_args[2]["deep"] is True  # config
+        assert call_args[2]["deep_top_n"] == 20  # config
 
 
 @pytest.mark.asyncio
@@ -284,8 +285,9 @@ async def test_resume_run_dispatches_task(client):
         assert response.status_code == 200
         assert response.json()["message"] == "Run resumed successfully"
         
-        # Verify task was dispatched
+        # Verify task was dispatched with correct parameters
         mock_task.delay.assert_called_once()
         call_args = mock_task.delay.call_args[0]
         assert call_args[0] == run_id  # run_id
         assert call_args[1] == "FULL"  # mode
+        assert isinstance(call_args[2], dict)  # config_snapshot

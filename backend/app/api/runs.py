@@ -71,7 +71,19 @@ async def create_run(
         )
         
         # Dispatch Celery task to start the migration/discovery process
-        run_migration.delay(str(created_run.id), run.mode, config)
+        try:
+            run_migration.delay(str(created_run.id), run.mode, config)
+        except Exception as e:
+            # If task dispatch fails, update run status to indicate the issue
+            await run_service.update_run_status(
+                run_id=str(created_run.id),
+                status="FAILED",
+                error={"message": f"Failed to dispatch task: {str(e)}"}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Run created but failed to start: {str(e)}"
+            )
         
         return RunResponse(
             id=str(created_run.id),
@@ -180,7 +192,19 @@ async def resume_run(
         )
     
     # Dispatch Celery task to resume the migration/discovery process
-    run_migration.delay(str(resumed_run.id), resumed_run.mode, resumed_run.config_snapshot)
+    try:
+        run_migration.delay(str(resumed_run.id), resumed_run.mode, resumed_run.config_snapshot)
+    except Exception as e:
+        # If task dispatch fails, revert run status back to failed
+        await run_service.update_run_status(
+            run_id=str(resumed_run.id),
+            status="FAILED",
+            error={"message": f"Failed to dispatch task: {str(e)}"}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resume run: {str(e)}"
+        )
     
     return {"message": "Run resumed successfully", "run_id": run_id}
 
