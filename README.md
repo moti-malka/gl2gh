@@ -7,7 +7,20 @@
 
 > **A comprehensive, agent-based platform for migrating GitLab groups and projects to GitHub with intelligent CI/CD conversion, validation, and safe execution.**
 
-Powered by **Microsoft Agent Framework** for enterprise-grade AI agent orchestration.
+Powered by **Microsoft Agent Framework** (official library) for production-ready AI agent orchestration.
+
+## 🚀 **NEW: Real Microsoft Agent Framework Integration**
+
+The platform now uses the **actual Microsoft Agent Framework** library from Microsoft:
+
+- ✅ **Official MAF Library**: Using `agent-framework` package (not custom implementation)
+- ✅ **Azure AI Integration**: Optional LLM-powered agents via Azure OpenAI
+- ✅ **Hybrid Mode**: Works with or without Azure AI (local deterministic fallback)
+- ✅ **Production Ready**: Enterprise-grade agent runtime from Microsoft
+
+**Quick Start Options:**
+1. **Local Mode** (no Azure required): `./start.sh` - Uses deterministic agents
+2. **Azure AI Mode** (LLM-powered): Configure Azure AI → See [Azure AI Setup Guide](AZURE_AI_SETUP.md)
 
 ## 🌟 Key Features
 
@@ -117,6 +130,14 @@ User → UI → API → Database → Queue → Worker → Agent → Storage
    # Edit .env and set your SECRET_KEY and APP_MASTER_KEY
    nano .env
    ```
+   
+   **Optional: Enable Azure AI** (for LLM-powered agents):
+   ```bash
+   # Add to .env:
+   AZURE_AI_PROJECT_ENDPOINT=https://your-project.region.api.azureml.ms
+   AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-4o-mini
+   ```
+   See [Azure AI Setup Guide](AZURE_AI_SETUP.md) for details.
 
 3. **Start the platform:**
    ```bash
@@ -124,6 +145,8 @@ User → UI → API → Database → Queue → Worker → Agent → Storage
    ```
 
 That's it! The platform will start all services automatically.
+
+> **Note**: Without Azure AI configuration, agents run in local mode (deterministic, no LLM). This is perfect for development and testing. Add Azure AI later for LLM-powered features.
 
 ### Access the Platform
 
@@ -550,6 +573,7 @@ See the standalone agent section below for detailed CLI options.
 Comprehensive documentation is available:
 
 - **[QUICKSTART.md](QUICKSTART.md)** - 5-minute setup guide
+- **[AZURE_AI_SETUP.md](AZURE_AI_SETUP.md)** - Azure AI setup for MAF integration ⭐ NEW
 - **[README_PLATFORM.md](README_PLATFORM.md)** - Detailed platform overview
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and components
 - **[MICROSOFT_AGENT_FRAMEWORK.md](docs/MICROSOFT_AGENT_FRAMEWORK.md)** - MAF integration guide
