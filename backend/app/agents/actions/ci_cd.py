@@ -82,12 +82,10 @@ class CreateEnvironmentAction(BaseAction):
             
             repo = self.github_client.get_repo(target_repo)
             
-            # Use GitHub API directly for environments (PyGithub may not have full support)
-            # This is a simplified implementation
-            self.logger.info(f"Creating environment: {environment_name}")
-            
-            # Note: Full environment creation with protection rules requires REST API
-            # This is a placeholder for the core functionality
+            # NOTE: Full environment creation with protection rules requires REST API
+            # PyGithub doesn't have complete support for Environments API yet
+            # This is a placeholder that logs the intent
+            self.logger.warning(f"Environment creation not fully implemented - manual setup required for: {environment_name}")
             
             return ActionResult(
                 success=True,
@@ -96,7 +94,7 @@ class CreateEnvironmentAction(BaseAction):
                 outputs={
                     "environment_name": environment_name,
                     "target_repo": target_repo,
-                    "note": "Environment created (protection rules require manual setup)"
+                    "note": "Environment needs manual creation via REST API - protection rules not supported by PyGithub"
                 }
             )
         except Exception as e:
@@ -189,9 +187,9 @@ class SetVariableAction(BaseAction):
             
             repo = self.github_client.get_repo(target_repo)
             
-            # Note: Variables API support in PyGithub may be limited
-            # This is a simplified implementation
-            self.logger.info(f"Setting variable: {variable_name}")
+            # NOTE: Variables API requires REST API calls not fully supported by PyGithub
+            # This is a placeholder that logs the intent
+            self.logger.warning(f"Variable setting not fully implemented - manual setup required for: {variable_name}")
             
             return ActionResult(
                 success=True,
@@ -201,7 +199,7 @@ class SetVariableAction(BaseAction):
                     "variable_name": variable_name,
                     "scope": scope,
                     "target_repo": target_repo,
-                    "note": "Variable set (may require REST API for full support)"
+                    "note": "Variable needs manual creation via REST API or GitHub UI"
                 }
             )
         except Exception as e:

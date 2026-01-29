@@ -14,9 +14,10 @@ class PublishPackageAction(BaseAction):
             package_name = self.parameters["package_name"]
             version = self.parameters["version"]
             
-            # Note: Package publishing is complex and depends on package type
-            # This is a placeholder implementation
-            self.logger.info(f"Publishing package {package_name}@{version} (type: {package_type})")
+            # NOTE: Package publishing is complex and package-type-specific
+            # Requires actual package files and proper authentication setup
+            # This is a placeholder that documents the intent
+            self.logger.warning(f"Package publishing not implemented - manual setup required for {package_name}@{version}")
             
             return ActionResult(
                 success=True,
@@ -27,7 +28,7 @@ class PublishPackageAction(BaseAction):
                     "version": version,
                     "package_type": package_type,
                     "target_repo": target_repo,
-                    "note": "Package publishing requires manual setup"
+                    "note": "Package publishing requires manual setup - depends on package type (npm, maven, docker, etc.)"
                 }
             )
         except Exception as e:

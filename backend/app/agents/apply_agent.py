@@ -3,9 +3,9 @@
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import json
+import asyncio
 from datetime import datetime
 from github import Github, GithubException, RateLimitExceededException
-import time
 
 from app.agents.base_agent import BaseAgent, AgentResult
 from app.agents.actions import ACTION_REGISTRY, ActionResult
@@ -258,7 +258,7 @@ class ApplyAgent(BaseAgent):
         completed_action_ids = {r.action_id for r in results if r.success}
         return all(dep in completed_action_ids for dep in dependencies)
     
-    def _check_rate_limit(self):
+    async def _check_rate_limit(self):
         """Check GitHub API rate limit and wait if needed"""
         try:
             rate_limit = self.github_client.get_rate_limit()
@@ -269,7 +269,7 @@ class ApplyAgent(BaseAgent):
                 wait_seconds = (reset_time - datetime.utcnow()).total_seconds() + 10
                 if wait_seconds > 0:
                     self.log_event("WARN", f"Rate limit low ({remaining}), waiting {wait_seconds:.0f}s")
-                    time.sleep(wait_seconds)
+                    await asyncio.sleep(wait_seconds)  # Use async sleep
         except Exception as e:
             self.log_event("WARN", f"Could not check rate limit: {str(e)}")
     

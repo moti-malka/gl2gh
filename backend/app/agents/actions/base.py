@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 from dataclasses import dataclass
 import time
+import asyncio
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -154,7 +155,7 @@ class BaseAction(ABC):
                 # Exponential backoff
                 delay = base_delay * (2 ** attempt)
                 self.logger.info(f"Retrying in {delay:.1f} seconds...")
-                time.sleep(delay)
+                await asyncio.sleep(delay)  # Use async sleep to not block event loop
         
         # All retries exhausted
         duration = time.time() - start_time

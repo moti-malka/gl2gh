@@ -4,6 +4,7 @@ from typing import Any, Dict
 from pathlib import Path
 import subprocess
 import shutil
+import tempfile
 from .base import BaseAction, ActionResult
 from github import GithubException
 
@@ -29,19 +30,22 @@ class CreateRepositoryAction(BaseAction):
                     has_wiki=self.parameters.get("has_wiki", True),
                     auto_init=self.parameters.get("auto_init", False),
                 )
-            except GithubException:
-                # Try as user if org fails
-                user = self.github_client.get_user(org_or_user)
-                repo = user.create_repo(
-                    name=repo_name,
-                    description=self.parameters.get("description", ""),
-                    homepage=self.parameters.get("homepage", ""),
-                    private=self.parameters.get("private", True),
-                    has_issues=self.parameters.get("has_issues", True),
-                    has_projects=self.parameters.get("has_projects", True),
-                    has_wiki=self.parameters.get("has_wiki", True),
-                    auto_init=self.parameters.get("auto_init", False),
-                )
+            except GithubException as e:
+                # If organization not found (404), try as user
+                if e.status == 404:
+                    user = self.github_client.get_user(org_or_user)
+                    repo = user.create_repo(
+                        name=repo_name,
+                        description=self.parameters.get("description", ""),
+                        homepage=self.parameters.get("homepage", ""),
+                        private=self.parameters.get("private", True),
+                        has_issues=self.parameters.get("has_issues", True),
+                        has_projects=self.parameters.get("has_projects", True),
+                        has_wiki=self.parameters.get("has_wiki", True),
+                        auto_init=self.parameters.get("auto_init", False),
+                    )
+                else:
+                    raise
             
             # Set topics if provided
             topics = self.parameters.get("topics", [])
@@ -100,9 +104,8 @@ class PushCodeAction(BaseAction):
             repo = self.github_client.get_repo(target_repo)
             clone_url = repo.clone_url
             
-            # Create temp directory for unpacking
-            temp_dir = Path("/tmp") / f"repo_{self.action_id}"
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            # Create temp directory for unpacking using tempfile for security
+            temp_dir = Path(tempfile.mkdtemp(prefix="gl2gh_repo_"))
             
             try:
                 # Clone from bundle
@@ -113,7 +116,7 @@ class PushCodeAction(BaseAction):
                     text=True
                 )
                 
-                # Add GitHub remote with token
+                # Add GitHub remote with token (token will be redacted in error messages)
                 token = self.context.get("github_token")
                 auth_url = clone_url.replace("https://", f"https://x-access-token:{token}@")
                 
@@ -121,7 +124,8 @@ class PushCodeAction(BaseAction):
                     ["git", "remote", "add", "github", auth_url],
                     cwd=temp_dir,
                     check=True,
-                    capture_output=True
+                    capture_output=True,
+                    text=True
                 )
                 
                 # Push all branches and tags
@@ -129,14 +133,16 @@ class PushCodeAction(BaseAction):
                     ["git", "push", "github", "--all"],
                     cwd=temp_dir,
                     check=True,
-                    capture_output=True
+                    capture_output=True,
+                    text=True
                 )
                 
                 subprocess.run(
                     ["git", "push", "github", "--tags"],
                     cwd=temp_dir,
                     check=True,
-                    capture_output=True
+                    capture_output=True,
+                    text=True
                 )
                 
                 return ActionResult(
@@ -151,12 +157,17 @@ class PushCodeAction(BaseAction):
                     shutil.rmtree(temp_dir, ignore_errors=True)
                     
         except subprocess.CalledProcessError as e:
+            # Redact token from error messages
+            error_msg = str(e.stderr if e.stderr else str(e))
+            token = self.context.get("github_token", "")
+            if token:
+                error_msg = error_msg.replace(token, "***REDACTED***")
             return ActionResult(
                 success=False,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={},
-                error=f"Git operation failed: {e.stderr if e.stderr else str(e)}"
+                error=f"Git operation failed: {error_msg}"
             )
         except Exception as e:
             return ActionResult(
