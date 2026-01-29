@@ -11,7 +11,7 @@ Updated multiple dependencies to address security vulnerabilities and compatibil
 ### bcrypt Version Pinning (Pinned to 4.0.1)
 
 #### Compatibility Issue: bcrypt 4.1.0+ breaks passlib 1.7.4
-- **Severity**: High (breaks authentication)
+- **Severity**: Critical (complete authentication failure)
 - **Affected Versions**: bcrypt >= 4.1.0 with passlib 1.7.4
 - **Fix**: Pin bcrypt to 4.0.1
 - **Description**: bcrypt version 4.1.0 and later introduced stricter password length validation and removed internal attributes that passlib 1.7.4 depends on. This causes `ValueError: password cannot be longer than 72 bytes` and `AttributeError: module 'bcrypt' has no attribute '__about__'` errors during authentication operations.
