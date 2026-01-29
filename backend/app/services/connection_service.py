@@ -6,7 +6,7 @@ from bson import ObjectId
 from pymongo.errors import PyMongoError
 
 from app.services.base_service import BaseService
-from app.models import Connection
+from app.models import Connection, MigrationProject
 from app.utils.security import encrypt_token, decrypt_token, get_token_last4
 
 
@@ -122,31 +122,103 @@ class ConnectionService(BaseService):
     
     async def get_connections(self, project_id: str) -> List[Connection]:
         """
-        Get all connections for a project
+        Get all connections for a project from both connections collection and project settings
         
         Args:
             project_id: Project ID
             
         Returns:
-            List of connections
+            List of connections (merged from connections collection and project settings)
         """
         try:
             if not ObjectId.is_valid(project_id):
                 return []
             
+            # Get connections from connections collection
             cursor = self.db[self.COLLECTION].find({"project_id": ObjectId(project_id)})
             connections = []
+            connection_types = set()  # Track which types we have from connections collection
+            
             async for conn_dict in cursor:
-                connections.append(Connection(**conn_dict))
+                conn = Connection(**conn_dict)
+                connections.append(conn)
+                connection_types.add(conn.type)
+            
+            # Also check project settings for credentials not in connections collection
+            project_dict = await self.db["projects"].find_one({"_id": ObjectId(project_id)})
+            if project_dict:
+                project = MigrationProject(**project_dict)
+                
+                # Check GitLab credentials in settings
+                if "gitlab" not in connection_types and project.settings.gitlab:
+                    gitlab_conn = self._create_connection_from_settings(
+                        project_id, "gitlab", project.settings.gitlab
+                    )
+                    if gitlab_conn:
+                        connections.append(gitlab_conn)
+                
+                # Check GitHub credentials in settings
+                if "github" not in connection_types and project.settings.github:
+                    github_conn = self._create_connection_from_settings(
+                        project_id, "github", project.settings.github
+                    )
+                    if github_conn:
+                        connections.append(github_conn)
+            
             return connections
             
         except PyMongoError as e:
             self.logger.error(f"Database error fetching connections for project {project_id}: {e}")
             return []
     
+    def _create_connection_from_settings(
+        self,
+        project_id: str,
+        conn_type: str,
+        settings: dict
+    ) -> Optional[Connection]:
+        """
+        Create a Connection object from project settings
+        
+        Args:
+            project_id: Project ID
+            conn_type: Connection type (gitlab or github)
+            settings: Settings dictionary containing token and optional base_url
+            
+        Returns:
+            Connection object if token is present, None otherwise
+        """
+        try:
+            # Check if token exists in settings
+            token = settings.get("token")
+            if not token:
+                return None
+            
+            # Extract base_url if present
+            base_url = settings.get("url") or settings.get("base_url")
+            
+            # Create a pseudo-connection object (without actual database ID)
+            # Note: We use a fake ObjectId as placeholder since these aren't in the connections collection
+            connection_dict = {
+                "_id": ObjectId(),  # Temporary ID for response serialization
+                "project_id": ObjectId(project_id),
+                "type": conn_type,
+                "base_url": base_url,
+                "token_encrypted": encrypt_token(token),
+                "token_last4": get_token_last4(token),
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            }
+            
+            return Connection(**connection_dict)
+            
+        except Exception as e:
+            self.logger.warning(f"Error creating connection from settings: {e}")
+            return None
+    
     async def get_connection_by_type(self, project_id: str, conn_type: str) -> Optional[Connection]:
         """
-        Get connection by project ID and type
+        Get connection by project ID and type from both connections collection and project settings
         
         Args:
             project_id: Project ID
@@ -159,6 +231,7 @@ class ConnectionService(BaseService):
             if not ObjectId.is_valid(project_id):
                 return None
             
+            # First check connections collection
             conn_dict = await self.db[self.COLLECTION].find_one({
                 "project_id": ObjectId(project_id),
                 "type": conn_type
@@ -166,6 +239,22 @@ class ConnectionService(BaseService):
             
             if conn_dict:
                 return Connection(**conn_dict)
+            
+            # If not found in connections collection, check project settings
+            project_dict = await self.db["projects"].find_one({"_id": ObjectId(project_id)})
+            if project_dict:
+                project = MigrationProject(**project_dict)
+                
+                # Check for credentials in settings based on type
+                if conn_type == "gitlab" and project.settings.gitlab:
+                    return self._create_connection_from_settings(
+                        project_id, "gitlab", project.settings.gitlab
+                    )
+                elif conn_type == "github" and project.settings.github:
+                    return self._create_connection_from_settings(
+                        project_id, "github", project.settings.github
+                    )
+            
             return None
             
         except PyMongoError as e:
