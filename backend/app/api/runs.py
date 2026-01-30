@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 class RunCreate(BaseModel):
-    mode: str = "PLAN_ONLY"
+    mode: str = "PLAN_ONLY"  # PLAN_ONLY, DRY_RUN, EXECUTE
     deep: bool = False
     deep_top_n: int = 20
     filters: Optional[Dict[str, Any]] = None

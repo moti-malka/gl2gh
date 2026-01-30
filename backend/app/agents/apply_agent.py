@@ -69,6 +69,11 @@ class ApplyAgent(BaseAgent):
         """Execute apply process"""
         self.log_event("INFO", "Starting apply execution")
         
+        # Check if this is a dry run
+        dry_run = inputs.get("dry_run", False)
+        if dry_run:
+            self.log_event("INFO", "Running in DRY RUN mode - no changes will be made")
+        
         try:
             output_dir = Path(inputs["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +88,8 @@ class ApplyAgent(BaseAgent):
                 "output_dir": str(output_dir),
                 "id_mappings": {},
                 "executed_actions": {},
-                "resume_state": inputs.get("resume_state", {})
+                "resume_state": inputs.get("resume_state", {}),
+                "dry_run": dry_run
             }
             
             # Get plan
@@ -99,13 +105,19 @@ class ApplyAgent(BaseAgent):
             results = await self._execute_actions(actions, resume_from)
             
             # Generate reports
-            apply_report = self._generate_apply_report(plan, results)
+            if dry_run:
+                apply_report = self._generate_dry_run_report(plan, results)
+            else:
+                apply_report = self._generate_apply_report(plan, results)
+            
             id_mappings = self.execution_context.get("id_mappings", {})
             errors = [r for r in results if not r.success]
             
             # Save artifacts
-            self._save_artifact(output_dir / "apply_report.json", apply_report)
-            self._save_artifact(output_dir / "id_mappings.json", id_mappings)
+            report_filename = "dry_run_report.json" if dry_run else "apply_report.json"
+            self._save_artifact(output_dir / report_filename, apply_report)
+            if not dry_run:
+                self._save_artifact(output_dir / "id_mappings.json", id_mappings)
             if errors:
                 self._save_artifact(
                     output_dir / "errors.json", 
@@ -123,21 +135,28 @@ class ApplyAgent(BaseAgent):
             else:
                 status = "failed"
             
-            self.log_event("INFO", f"Apply completed: {successful_actions}/{total_actions} actions succeeded")
+            mode_text = "Dry run" if dry_run else "Apply"
+            self.log_event("INFO", f"{mode_text} completed: {successful_actions}/{total_actions} actions succeeded")
+            
+            outputs = {
+                "apply_complete": status in ["success", "partial"],
+                "actions_executed": successful_actions,
+                "actions_total": total_actions,
+                "errors": len(errors),
+                "dry_run": dry_run
+            }
+            
+            if not dry_run:
+                outputs["id_mappings"] = id_mappings
+            
+            artifacts = [str(output_dir / report_filename)]
+            if not dry_run:
+                artifacts.append(str(output_dir / "id_mappings.json"))
             
             return AgentResult(
                 status=status,
-                outputs={
-                    "apply_complete": status in ["success", "partial"],
-                    "actions_executed": successful_actions,
-                    "actions_total": total_actions,
-                    "id_mappings": id_mappings,
-                    "errors": len(errors)
-                },
-                artifacts=[
-                    str(output_dir / "apply_report.json"),
-                    str(output_dir / "id_mappings.json")
-                ],
+                outputs=outputs,
+                artifacts=artifacts,
                 errors=[e.to_dict() for e in errors]
             ).to_dict()
             
@@ -216,20 +235,24 @@ class ApplyAgent(BaseAgent):
                     context=self.execution_context
                 )
                 
-                # Handle rate limiting
-                self._check_rate_limit()
+                # Handle rate limiting (skip in dry-run mode)
+                dry_run = self.execution_context.get("dry_run", False)
+                if not dry_run:
+                    self._check_rate_limit()
                 
-                # Execute with retry
+                # Execute with retry (or simulate if dry_run)
                 result = await action_executor.execute_with_retry(
                     max_retries=3,
-                    base_delay=1.0
+                    base_delay=1.0,
+                    dry_run=dry_run
                 )
                 results.append(result)
                 
                 # Emit progress event
+                mode_text = "simulated" if dry_run else ("completed" if result.success else "failed")
                 self.log_event(
                     "INFO" if result.success else "ERROR",
-                    f"Action {action_id} {'completed' if result.success else 'failed'}",
+                    f"Action {action_id} {mode_text}",
                     {"action_type": action_type, "outputs": result.outputs}
                 )
                 
@@ -296,6 +319,62 @@ class ApplyAgent(BaseAgent):
             "actions": [r.to_dict() for r in results],
             "id_mappings": self.execution_context.get("id_mappings", {}),
             "errors": [r.to_dict() for r in results if not r.success]
+        }
+    
+    def _generate_dry_run_report(
+        self, 
+        plan: Dict[str, Any], 
+        results: List[ActionResult]
+    ) -> Dict[str, Any]:
+        """Generate comprehensive dry run report with predictions"""
+        total_actions = len(results)
+        successful = sum(1 for r in results if r.success)
+        
+        # Count outcomes
+        outcome_counts = {
+            "would_create": 0,
+            "would_update": 0,
+            "would_skip": 0,
+            "would_fail": 0,
+            "would_execute": 0
+        }
+        
+        warnings = []
+        
+        for result in results:
+            if result.simulated and result.simulation_outcome:
+                outcome_counts[result.simulation_outcome] = outcome_counts.get(result.simulation_outcome, 0) + 1
+            
+            # Check for actions requiring user input
+            action_params = None
+            for action in plan.get("actions", []):
+                if action.get("id") == result.action_id:
+                    action_params = action.get("parameters", {})
+                    if action.get("requires_user_input"):
+                        warnings.append(f"Action {result.action_id} requires manual configuration")
+                    break
+        
+        # Add warnings for common issues
+        if plan.get("user_inputs_required"):
+            warnings.append(f"{len(plan['user_inputs_required'])} secrets/values need manual configuration")
+        
+        return {
+            "version": "1.0",
+            "mode": "dry_run",
+            "timestamp": datetime.utcnow().isoformat(),
+            "plan_summary": plan.get("summary", {}),
+            "summary": {
+                "total_actions": total_actions,
+                "would_create": outcome_counts["would_create"],
+                "would_update": outcome_counts["would_update"],
+                "would_skip": outcome_counts["would_skip"],
+                "would_fail": outcome_counts["would_fail"],
+                "would_execute": outcome_counts["would_execute"],
+                "simulation_success_rate": f"{(successful/total_actions*100):.1f}%" if total_actions > 0 else "0%"
+            },
+            "actions": [r.to_dict() for r in results],
+            "warnings": warnings,
+            "note": "This is a simulation. No actual changes were made to GitHub."
         }
     
     def _save_artifact(self, path: Path, data: Any):

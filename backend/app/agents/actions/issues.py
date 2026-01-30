@@ -114,6 +114,38 @@ class CreateMilestoneAction(BaseAction):
 class CreateIssueAction(BaseAction):
     """Create issue with attribution"""
     
+    async def simulate(self) -> ActionResult:
+        """Simulate issue creation"""
+        try:
+            target_repo = self.parameters["target_repo"]
+            title = self.parameters["title"]
+            gitlab_issue_id = self.parameters.get("gitlab_issue_id")
+            
+            # In dry-run, we predict the issue will be created
+            return ActionResult(
+                success=True,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={
+                    "title": title,
+                    "gitlab_issue_id": gitlab_issue_id
+                },
+                simulated=True,
+                simulation_outcome="would_create",
+                simulation_message=f"Would create issue: '{title}' in {target_repo}"
+            )
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=str(e),
+                simulated=True,
+                simulation_outcome="would_fail",
+                simulation_message=f"Would fail: {str(e)}"
+            )
+    
     async def execute(self) -> ActionResult:
         try:
             target_repo = self.parameters["target_repo"]

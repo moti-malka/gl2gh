@@ -22,6 +22,9 @@ class ActionResult:
     retry_count: int = 0
     duration_seconds: float = 0.0
     timestamp: Optional[datetime] = None
+    simulated: bool = False
+    simulation_outcome: Optional[str] = None  # "would_create", "would_update", "would_skip", "would_fail"
+    simulation_message: Optional[str] = None
     
     def __post_init__(self):
         if self.timestamp is None:
@@ -29,7 +32,7 @@ class ActionResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        return {
+        result = {
             "success": self.success,
             "action_id": self.action_id,
             "action_type": self.action_type,
@@ -39,6 +42,11 @@ class ActionResult:
             "duration_seconds": self.duration_seconds,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None
         }
+        if self.simulated:
+            result["simulated"] = True
+            result["simulation_outcome"] = self.simulation_outcome
+            result["simulation_message"] = self.simulation_message
+        return result
 
 
 class BaseAction(ABC):
@@ -76,6 +84,25 @@ class BaseAction(ABC):
         """
         pass
     
+    async def simulate(self) -> ActionResult:
+        """
+        Simulate the action without executing it.
+        Predicts the outcome of executing the action.
+        
+        Returns:
+            ActionResult with simulated=True and predicted outcome
+        """
+        # Default implementation - subclasses can override for specific behavior
+        return ActionResult(
+            success=True,
+            action_id=self.action_id,
+            action_type=self.action_type,
+            outputs={},
+            simulated=True,
+            simulation_outcome="would_execute",
+            simulation_message=f"Would execute action: {self.action_type}"
+        )
+    
     def check_idempotency(self) -> Optional[ActionResult]:
         """
         Check if action has already been executed.
@@ -110,17 +137,26 @@ class BaseAction(ABC):
             self.context["id_mappings"][gitlab_type] = {}
         self.context["id_mappings"][gitlab_type][str(gitlab_id)] = github_id
     
-    async def execute_with_retry(self, max_retries: int = 3, base_delay: float = 1.0) -> ActionResult:
+    async def execute_with_retry(self, max_retries: int = 3, base_delay: float = 1.0, dry_run: bool = False) -> ActionResult:
         """
         Execute action with retry logic and exponential backoff.
         
         Args:
             max_retries: Maximum number of retry attempts
             base_delay: Base delay in seconds for exponential backoff
+            dry_run: If True, simulate instead of executing
             
         Returns:
             ActionResult
         """
+        # In dry-run mode, call simulate() instead of execute()
+        if dry_run:
+            self.logger.info(f"Simulating action {self.action_id}")
+            start_time = time.time()
+            result = await self.simulate()
+            result.duration_seconds = time.time() - start_time
+            return result
+        
         # Check idempotency first
         previous_result = self.check_idempotency()
         if previous_result:
