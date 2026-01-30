@@ -122,6 +122,8 @@ class MigrationRun(MongoBaseModel):
     progress: Any = Field(default_factory=dict)  # Progress tracking details (dict or int for percent)
     progress_percent: int = 0  # Overall progress percentage (0-100)
     components: Optional[List[str]] = None  # List of components/stages to run
+    inventory: Optional[Dict[str, Any]] = None  # Component inventory from discovery
+    selection: Optional[Dict[str, Any]] = None  # User's component selection
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     stats: RunStats = Field(default_factory=RunStats)

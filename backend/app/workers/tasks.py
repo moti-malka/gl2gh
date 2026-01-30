@@ -315,6 +315,107 @@ def run_discovery(run_id: str, config: dict):
                 from app.db import get_database
                 db = loop.run_until_complete(get_database())
                 
+                # Build component inventory summary from discovered projects
+                inventory_summary = {
+                    "repository": {
+                        "total_branches": 0,
+                        "total_tags": 0,
+                        "total_commits": 0,
+                        "total_size_mb": 0,
+                        "has_lfs": False
+                    },
+                    "ci_cd": {
+                        "projects_with_ci": 0,
+                        "total_variables": 0,
+                        "total_environments": 0,
+                        "total_schedules": 0
+                    },
+                    "issues": {
+                        "total_open": 0,
+                        "total_closed": 0,
+                        "total_labels": 0,
+                        "total_milestones": 0
+                    },
+                    "merge_requests": {
+                        "total_open": 0,
+                        "total_merged": 0,
+                        "total_closed": 0
+                    },
+                    "wiki": {
+                        "projects_with_wiki": 0,
+                        "total_pages": 0
+                    },
+                    "releases": {
+                        "total_releases": 0
+                    },
+                    "settings": {
+                        "total_protected_branches": 0,
+                        "total_members": 0,
+                        "total_webhooks": 0,
+                        "total_deploy_keys": 0
+                    },
+                    "projects": []
+                }
+                
+                for project_data in discovered_projects:
+                    components = project_data.get("components", {})
+                    
+                    # Add to summary
+                    repo = components.get("repository", {})
+                    inventory_summary["repository"]["total_branches"] += repo.get("branches_count", 0)
+                    inventory_summary["repository"]["total_tags"] += repo.get("tags_count", 0)
+                    inventory_summary["repository"]["total_commits"] += repo.get("commits_count", 0)
+                    inventory_summary["repository"]["total_size_mb"] += repo.get("size_mb", 0)
+                    if components.get("lfs", {}).get("detected"):
+                        inventory_summary["repository"]["has_lfs"] = True
+                    
+                    ci_cd = components.get("ci_cd", {})
+                    if ci_cd.get("has_gitlab_ci"):
+                        inventory_summary["ci_cd"]["projects_with_ci"] += 1
+                    inventory_summary["ci_cd"]["total_variables"] += ci_cd.get("variables_count", 0)
+                    inventory_summary["ci_cd"]["total_environments"] += ci_cd.get("environments_count", 0)
+                    inventory_summary["ci_cd"]["total_schedules"] += ci_cd.get("schedules_count", 0)
+                    
+                    issues = components.get("issues", {})
+                    inventory_summary["issues"]["total_open"] += issues.get("opened_count", 0)
+                    inventory_summary["issues"]["total_closed"] += issues.get("closed_count", 0)
+                    inventory_summary["issues"]["total_labels"] += issues.get("labels_count", 0)
+                    inventory_summary["issues"]["total_milestones"] += issues.get("milestones_count", 0)
+                    
+                    mrs = components.get("merge_requests", {})
+                    inventory_summary["merge_requests"]["total_open"] += mrs.get("opened_count", 0)
+                    inventory_summary["merge_requests"]["total_merged"] += mrs.get("merged_count", 0)
+                    inventory_summary["merge_requests"]["total_closed"] += mrs.get("closed_count", 0)
+                    
+                    wiki = components.get("wiki", {})
+                    if wiki.get("enabled") and wiki.get("pages_count", 0) > 0:
+                        inventory_summary["wiki"]["projects_with_wiki"] += 1
+                    inventory_summary["wiki"]["total_pages"] += wiki.get("pages_count", 0)
+                    
+                    releases = components.get("releases", {})
+                    inventory_summary["releases"]["total_releases"] += releases.get("count", 0)
+                    
+                    settings = components.get("settings", {})
+                    inventory_summary["settings"]["total_protected_branches"] += settings.get("protected_branches_count", 0)
+                    inventory_summary["settings"]["total_members"] += settings.get("members_count", 0)
+                    inventory_summary["settings"]["total_webhooks"] += settings.get("webhooks_count", 0)
+                    inventory_summary["settings"]["total_deploy_keys"] += settings.get("deploy_keys_count", 0)
+                    
+                    # Add project summary to inventory
+                    inventory_summary["projects"].append({
+                        "id": project_data["id"],
+                        "path_with_namespace": project_data["path_with_namespace"],
+                        "components": components
+                    })
+                
+                # Store inventory in run document
+                loop.run_until_complete(
+                    run_service.update_run_inventory(
+                        run_id=run_id,
+                        inventory=inventory_summary
+                    )
+                )
+                
                 for project_data in discovered_projects:
                     # Create RunProject document
                     run_project = {

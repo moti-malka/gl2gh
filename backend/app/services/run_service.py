@@ -252,6 +252,74 @@ class RunService(BaseService):
         """
         return await self.update_run_status(run_id, "CANCELED")
     
+    async def update_run_inventory(
+        self,
+        run_id: str,
+        inventory: Dict[str, Any]
+    ) -> Optional[MigrationRun]:
+        """
+        Update run with component inventory from discovery
+        
+        Args:
+            run_id: Run ID
+            inventory: Component inventory data
+            
+        Returns:
+            Updated run if found, None otherwise
+        """
+        try:
+            if not ObjectId.is_valid(run_id):
+                return None
+            
+            result = await self.db[self.COLLECTION].find_one_and_update(
+                {"_id": ObjectId(run_id)},
+                {"$set": {"inventory": inventory}},
+                return_document=True
+            )
+            
+            if result:
+                self.logger.info(f"Updated inventory for run {run_id}")
+                return MigrationRun(**result)
+            return None
+            
+        except PyMongoError as e:
+            self.logger.error(f"Database error updating inventory for run {run_id}: {e}")
+            return None
+    
+    async def update_run_selection(
+        self,
+        run_id: str,
+        selection: Dict[str, Any]
+    ) -> Optional[MigrationRun]:
+        """
+        Update run with user's component selection
+        
+        Args:
+            run_id: Run ID
+            selection: User's component selection
+            
+        Returns:
+            Updated run if found, None otherwise
+        """
+        try:
+            if not ObjectId.is_valid(run_id):
+                return None
+            
+            result = await self.db[self.COLLECTION].find_one_and_update(
+                {"_id": ObjectId(run_id)},
+                {"$set": {"selection": selection}},
+                return_document=True
+            )
+            
+            if result:
+                self.logger.info(f"Updated selection for run {run_id}")
+                return MigrationRun(**result)
+            return None
+            
+        except PyMongoError as e:
+            self.logger.error(f"Database error updating selection for run {run_id}: {e}")
+            return None
+    
     async def resume_run(self, run_id: str, from_stage: Optional[str] = None) -> Optional[MigrationRun]:
         """
         Resume a failed or cancelled run

@@ -279,52 +279,77 @@ class DiscoveryAgent(BaseAgent):
         components = {}
         
         try:
-            # 1. Repository (branches, tags, commits)
+            # 1. Repository (branches, tags, commits) - Enhanced with size and protected info
             branches = await client.list_branches(project_id)
             tags = await client.list_tags(project_id)
             commits = await client.get_commits(project_id, max_pages=1) if branches else []
+            
+            # Get repository size if available
+            repo_size_mb = project.get("statistics", {}).get("repository_size", 0) / (1024 * 1024) if project.get("statistics") else 0
             
             components["repository"] = {
                 "enabled": True,
                 "branches_count": len(branches),
                 "tags_count": len(tags),
+                "commits_count": len(commits) if commits else 0,
                 "default_branch": project.get("default_branch"),
+                "size_mb": round(repo_size_mb, 2),
                 "has_content": len(branches) > 0
             }
         except Exception as e:
             components["repository"] = {"enabled": False, "error": str(e)}
         
         try:
-            # 2. CI/CD
+            # 2. CI/CD - Enhanced with detailed counts
             has_ci = await client.has_ci_config(project_id)
             pipelines = await client.list_pipelines(project_id, max_pages=1) if has_ci else []
+            variables = await client.list_variables(project_id) if has_ci else []
+            environments = await client.list_environments(project_id) if has_ci else []
+            schedules = await client.list_pipeline_schedules(project_id) if has_ci else []
             
             components["ci_cd"] = {
                 "enabled": has_ci,
                 "has_gitlab_ci": has_ci,
-                "recent_pipelines": len(pipelines)
+                "recent_pipelines": len(pipelines),
+                "variables_count": len(variables),
+                "environments_count": len(environments),
+                "schedules_count": len(schedules)
             }
         except Exception as e:
             components["ci_cd"] = {"enabled": False, "error": str(e)}
         
         try:
-            # 3. Issues
-            issues = await client.list_issues(project_id, state="opened")
+            # 3. Issues - Enhanced with detailed counts
+            opened_issues = await client.list_issues(project_id, state="opened")
+            closed_issues = await client.list_issues(project_id, state="closed", max_pages=1)  # Sample closed
+            labels = await client.list_labels(project_id)
+            milestones = await client.list_milestones(project_id)
+            
             components["issues"] = {
                 "enabled": True,
-                "opened_count": len(issues),
-                "has_issues": len(issues) > 0
+                "opened_count": len(opened_issues),
+                "closed_count": len(closed_issues),  # Sample count
+                "total_count": len(opened_issues) + len(closed_issues),
+                "labels_count": len(labels),
+                "milestones_count": len(milestones),
+                "has_issues": len(opened_issues) > 0 or len(closed_issues) > 0
             }
         except Exception as e:
             components["issues"] = {"enabled": False, "error": str(e)}
         
         try:
-            # 4. Merge Requests
-            mrs = await client.list_merge_requests(project_id, state="opened")
+            # 4. Merge Requests - Enhanced with detailed counts
+            opened_mrs = await client.list_merge_requests(project_id, state="opened")
+            merged_mrs = await client.list_merge_requests(project_id, state="merged", max_pages=1)  # Sample
+            closed_mrs = await client.list_merge_requests(project_id, state="closed", max_pages=1)  # Sample
+            
             components["merge_requests"] = {
                 "enabled": True,
-                "opened_count": len(mrs),
-                "has_mrs": len(mrs) > 0
+                "opened_count": len(opened_mrs),
+                "merged_count": len(merged_mrs),  # Sample count
+                "closed_count": len(closed_mrs),  # Sample count
+                "total_count": len(opened_mrs) + len(merged_mrs) + len(closed_mrs),
+                "has_mrs": len(opened_mrs) > 0 or len(merged_mrs) > 0
             }
         except Exception as e:
             components["merge_requests"] = {"enabled": False, "error": str(e)}
@@ -443,6 +468,26 @@ class DiscoveryAgent(BaseAgent):
             }
         except Exception as e:
             components["variables"] = {"enabled": False, "error": str(e)}
+        
+        try:
+            # 15. Settings & Governance - Consolidated view
+            protected_branches = await client.list_protected_branches(project_id)
+            protected_tags = await client.list_protected_tags(project_id)
+            members = await client.list_project_members(project_id)
+            hooks = await client.list_hooks(project_id)
+            deploy_keys = await client.list_deploy_keys(project_id)
+            
+            components["settings"] = {
+                "enabled": True,
+                "protected_branches_count": len(protected_branches),
+                "protected_tags_count": len(protected_tags),
+                "members_count": len(members),
+                "webhooks_count": len(hooks),
+                "deploy_keys_count": len(deploy_keys),
+                "has_settings": True
+            }
+        except Exception as e:
+            components["settings"] = {"enabled": False, "error": str(e)}
         
         project_data["components"] = components
         return project_data
