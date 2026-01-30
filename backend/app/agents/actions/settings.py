@@ -2,11 +2,11 @@
 
 from typing import Any, Dict
 from .base import BaseAction, ActionResult
-from github import GithubException
+from github import GithubException, InputGitTreeElement
 
 
 class SetBranchProtectionAction(BaseAction):
-    """Set branch protection rules"""
+    """Set branch protection rules with full GitLab → GitHub mapping"""
     
     async def execute(self) -> ActionResult:
         try:
@@ -26,18 +26,49 @@ class SetBranchProtectionAction(BaseAction):
             enforce_admins = self.parameters.get("enforce_admins", False)
             require_linear_history = self.parameters.get("require_linear_history", False)
             allow_force_pushes = self.parameters.get("allow_force_pushes", False)
+            allow_deletions = self.parameters.get("allow_deletions", False)
+            required_conversation_resolution = self.parameters.get("required_conversation_resolution", False)
+            
+            # Get required_pull_request_reviews from parameters if provided as dict
+            required_pull_request_reviews = self.parameters.get("required_pull_request_reviews")
+            
+            # Build protection parameters
+            protection_params = {
+                "enforce_admins": enforce_admins,
+                "required_linear_history": require_linear_history,
+                "allow_force_pushes": allow_force_pushes,
+                "allow_deletions": allow_deletions,
+            }
+            
+            # Add status checks if required
+            if require_status_checks or contexts:
+                protection_params["strict"] = strict_status_checks
+                protection_params["contexts"] = contexts
+            
+            # Add required reviews
+            if required_pull_request_reviews:
+                # Use provided dict
+                protection_params["dismiss_stale_reviews"] = required_pull_request_reviews.get(
+                    "dismiss_stale_reviews", dismiss_stale_reviews
+                )
+                protection_params["require_code_owner_reviews"] = required_pull_request_reviews.get(
+                    "require_code_owner_reviews", require_code_owner_reviews
+                )
+                protection_params["required_approving_review_count"] = required_pull_request_reviews.get(
+                    "required_approving_review_count", required_approving_review_count
+                )
+            else:
+                # Use individual parameters
+                protection_params["dismiss_stale_reviews"] = dismiss_stale_reviews
+                protection_params["require_code_owner_reviews"] = require_code_owner_reviews
+                protection_params["required_approving_review_count"] = required_approving_review_count
+            
+            # Add dismissal restrictions if provided
+            protection_params["dismissal_users"] = self.parameters.get("dismissal_users", [])
+            protection_params["dismissal_teams"] = self.parameters.get("dismissal_teams", [])
             
             # Apply protection
-            branch.edit_protection(
-                strict=strict_status_checks,
-                contexts=contexts if require_status_checks else [],
-                enforce_admins=enforce_admins,
-                dismissal_users=[],
-                dismissal_teams=[],
-                dismiss_stale_reviews=dismiss_stale_reviews,
-                require_code_owner_reviews=require_code_owner_reviews,
-                required_approving_review_count=required_approving_review_count
-            )
+            branch.edit_protection(**protection_params)
             
             return ActionResult(
                 success=True,
@@ -46,7 +77,13 @@ class SetBranchProtectionAction(BaseAction):
                 outputs={
                     "branch": branch_name,
                     "target_repo": target_repo,
-                    "protected": True
+                    "protected": True,
+                    "settings_applied": {
+                        "required_reviews": required_approving_review_count,
+                        "status_checks": len(contexts) if contexts else 0,
+                        "force_push_allowed": allow_force_pushes,
+                        "deletions_allowed": allow_deletions
+                    }
                 }
             )
         except GithubException as e:
@@ -153,6 +190,76 @@ class CreateWebhookAction(BaseAction):
                     "events": events,
                     "target_repo": target_repo
                 }
+            )
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=str(e)
+            )
+
+
+class CommitCodeownersAction(BaseAction):
+    """Commit CODEOWNERS file to repository"""
+    
+    async def execute(self) -> ActionResult:
+        try:
+            target_repo = self.parameters["target_repo"]
+            codeowners_content = self.parameters["codeowners_content"]
+            branch = self.parameters.get("branch", "main")
+            commit_message = self.parameters.get(
+                "commit_message", 
+                "Add CODEOWNERS file from GitLab approval rules"
+            )
+            
+            repo = self.github_client.get_repo(target_repo)
+            
+            # CODEOWNERS can be in root, .github/, or docs/
+            # We'll use .github/CODEOWNERS as the standard location
+            file_path = ".github/CODEOWNERS"
+            
+            try:
+                # Try to get existing CODEOWNERS file
+                existing_file = repo.get_contents(file_path, ref=branch)
+                # Update existing file
+                repo.update_file(
+                    path=file_path,
+                    message=commit_message,
+                    content=codeowners_content,
+                    sha=existing_file.sha,
+                    branch=branch
+                )
+                action_taken = "updated"
+            except GithubException:
+                # File doesn't exist, create it
+                repo.create_file(
+                    path=file_path,
+                    message=commit_message,
+                    content=codeowners_content,
+                    branch=branch
+                )
+                action_taken = "created"
+            
+            return ActionResult(
+                success=True,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={
+                    "file_path": file_path,
+                    "target_repo": target_repo,
+                    "branch": branch,
+                    "action": action_taken
+                }
+            )
+        except GithubException as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=f"Failed to commit CODEOWNERS: {str(e)}"
             )
         except Exception as e:
             return ActionResult(

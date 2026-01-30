@@ -32,7 +32,8 @@ from .packages import PublishPackageAction
 from .settings import (
     SetBranchProtectionAction,
     AddCollaboratorAction,
-    CreateWebhookAction
+    CreateWebhookAction,
+    CommitCodeownersAction
 )
 from .preservation import CommitPreservationArtifactsAction
 
@@ -60,6 +61,7 @@ __all__ = [
     "SetBranchProtectionAction",
     "AddCollaboratorAction",
     "CreateWebhookAction",
+    "CommitCodeownersAction",
     "CommitPreservationArtifactsAction",
     "ACTION_REGISTRY",
 ]
@@ -87,5 +89,6 @@ ACTION_REGISTRY = {
     "protection_set": SetBranchProtectionAction,
     "collaborator_add": AddCollaboratorAction,
     "webhook_create": CreateWebhookAction,
+    "codeowners_commit": CommitCodeownersAction,
     "artifact_commit": CommitPreservationArtifactsAction,
 }

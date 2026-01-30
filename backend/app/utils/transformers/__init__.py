@@ -5,6 +5,7 @@ from .cicd_transformer import CICDTransformer
 from .user_mapper import UserMapper
 from .content_transformer import ContentTransformer
 from .gap_analyzer import GapAnalyzer
+from .protection_transformer import ProtectionRulesTransformer
 
 __all__ = [
     "BaseTransformer",
@@ -13,4 +14,5 @@ __all__ = [
     "UserMapper",
     "ContentTransformer",
     "GapAnalyzer",
+    "ProtectionRulesTransformer",
 ]
