@@ -239,6 +239,138 @@ class TestRepositoryActions:
         
         # Should succeed - tries user after org fails
         assert result.success is True
+    
+    @pytest.mark.asyncio
+    async def test_push_lfs_no_objects(self, tmp_path):
+        """Test LFS push when no objects exist"""
+        from app.agents.actions.repository import PushLFSAction
+        
+        mock_github = Mock()
+        lfs_path = tmp_path / "lfs"
+        
+        action_config = {
+            "id": "action-003",
+            "type": "lfs_configure",
+            "parameters": {
+                "lfs_objects_path": str(lfs_path),
+                "target_repo": "org/test-repo"
+            }
+        }
+        
+        action = PushLFSAction(action_config, mock_github, {})
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["skipped"] is True
+        assert "No LFS objects found" in result.outputs["reason"]
+    
+    @pytest.mark.asyncio
+    async def test_push_lfs_success(self, tmp_path):
+        """Test successful LFS push"""
+        from app.agents.actions.repository import PushLFSAction
+        
+        # Setup
+        mock_github = Mock()
+        mock_repo = Mock()
+        mock_repo.clone_url = "https://github.com/org/test-repo.git"
+        mock_github.get_repo.return_value = mock_repo
+        
+        # Create LFS directory with manifest
+        lfs_path = tmp_path / "lfs"
+        lfs_path.mkdir(parents=True)
+        
+        manifest = {
+            "total_count": 2,
+            "total_size": 3072,
+            "objects": [
+                {"oid": "abc123", "path": "file1.bin", "size": 1024},
+                {"oid": "def456", "path": "file2.bin", "size": 2048}
+            ]
+        }
+        
+        manifest_path = lfs_path / "manifest.json"
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f)
+        
+        # Create mock LFS objects directory
+        lfs_objects = lfs_path / "objects"
+        lfs_objects.mkdir(parents=True)
+        (lfs_objects / "test.bin").write_text("mock content")
+        
+        action_config = {
+            "id": "action-003",
+            "type": "lfs_configure",
+            "parameters": {
+                "lfs_objects_path": str(lfs_path),
+                "target_repo": "org/test-repo"
+            }
+        }
+        
+        context = {"github_token": "ghp_test123"}
+        
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+            
+            action = PushLFSAction(action_config, mock_github, context)
+            result = await action.execute()
+            
+            assert result.success is True
+            assert result.outputs["lfs_configured"] is True
+            assert result.outputs["objects_pushed"] == 2
+            assert result.outputs["total_size"] == 3072
+    
+    @pytest.mark.asyncio
+    async def test_push_lfs_quota_error(self, tmp_path):
+        """Test LFS push with quota error"""
+        from app.agents.actions.repository import PushLFSAction
+        import subprocess
+        
+        # Setup
+        mock_github = Mock()
+        mock_repo = Mock()
+        mock_repo.clone_url = "https://github.com/org/test-repo.git"
+        mock_github.get_repo.return_value = mock_repo
+        
+        # Create LFS directory with manifest
+        lfs_path = tmp_path / "lfs"
+        lfs_path.mkdir(parents=True)
+        
+        manifest = {
+            "total_count": 1,
+            "total_size": 1024,
+            "objects": [{"oid": "abc123", "path": "file1.bin", "size": 1024}]
+        }
+        
+        with open(lfs_path / "manifest.json", 'w') as f:
+            json.dump(manifest, f)
+        
+        (lfs_path / "objects").mkdir(parents=True)
+        
+        action_config = {
+            "id": "action-003",
+            "type": "lfs_configure",
+            "parameters": {
+                "lfs_objects_path": str(lfs_path),
+                "target_repo": "org/test-repo"
+            }
+        }
+        
+        context = {"github_token": "ghp_test123"}
+        
+        with patch('subprocess.run') as mock_run:
+            # Clone and install succeed, push fails with quota error
+            mock_run.side_effect = [
+                Mock(returncode=0, stdout="", stderr=""),  # clone
+                Mock(returncode=0, stdout="", stderr=""),  # lfs install
+                subprocess.CalledProcessError(1, ['git', 'lfs', 'push'], 
+                                             stderr="Error: quota exceeded")  # push
+            ]
+            
+            action = PushLFSAction(action_config, mock_github, context)
+            result = await action.execute()
+            
+            assert result.success is False
+            assert "quota" in result.error.lower()
 
 
 class TestIssueActions:
