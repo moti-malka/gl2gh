@@ -1,0 +1,99 @@
+/* Connection Test Component Styles */
+
+.connection-test {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.connection-test .test-button {
+  padding: 0.5rem 1.5rem;
+  font-size: 0.875rem;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f7fafc;
+  color: #2d3748;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.connection-test .test-button:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #cbd5e0;
+}
+
+.connection-test .test-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.test-success {
+  background: #f0fff4;
+  border: 1px solid #9ae6b4;
+  color: #22543d;
+}
+
+.test-error {
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  color: #742a2a;
+}
+
+.test-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.test-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.test-user {
+  font-weight: 500;
+}
+
+.test-user strong {
+  color: #22543d;
+}
+
+.test-scopes {
+  font-size: 0.8rem;
+  color: #2d7748;
+  opacity: 0.9;
+}
+
+.test-message {
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .connection-test .test-button {
+    width: 100%;
+  }
+}
