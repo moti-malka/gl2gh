@@ -71,7 +71,7 @@ export const RunCreationPage = () => {
         <div className="form-section">
           <h2>Migration Mode</h2>
           <p className="section-description">
-            Choose whether to plan only or execute the full migration.
+            Choose how to run the migration: plan only, preview changes, or execute.
           </p>
           
           <div className="mode-selector">
@@ -86,6 +86,20 @@ export const RunCreationPage = () => {
               <div className="mode-content">
                 <strong>Plan Only</strong>
                 <p>Generate migration plan without executing (recommended first)</p>
+              </div>
+            </label>
+            
+            <label className={`mode-option ${mode === 'DRY_RUN' ? 'selected' : ''}`}>
+              <input
+                type="radio"
+                name="mode"
+                value="DRY_RUN"
+                checked={mode === 'DRY_RUN'}
+                onChange={(e) => setMode(e.target.value)}
+              />
+              <div className="mode-content">
+                <strong>Dry Run</strong>
+                <p>Simulate execution and show what would happen (no changes made)</p>
               </div>
             </label>
             
@@ -169,7 +183,7 @@ export const RunCreationPage = () => {
               />
               <div className="component-info">
                 <strong>Apply</strong>
-                <p>Execute migration to GitHub (requires EXECUTE mode)</p>
+                <p>Execute migration to GitHub (requires DRY_RUN or EXECUTE mode)</p>
               </div>
             </label>
             
@@ -178,7 +192,7 @@ export const RunCreationPage = () => {
                 type="checkbox"
                 checked={components.verify}
                 onChange={() => handleComponentToggle('verify')}
-                disabled={mode === 'PLAN_ONLY'}
+                disabled={mode === 'PLAN_ONLY' || mode === 'DRY_RUN'}
               />
               <div className="component-info">
                 <strong>Verify</strong>

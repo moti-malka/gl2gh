@@ -7,13 +7,17 @@ from pathlib import Path
 from datetime import datetime
 import json
 import logging
+import asyncio
+from sse_starlette.sse import EventSourceResponse
 
 from app.models import User
 from app.services import RunService, ArtifactService, ProjectService
 from app.services.connection_service import ConnectionService
+from app.services.report_service import MigrationReportGenerator
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
 from app.workers.tasks import run_migration, run_apply, run_verify
+from app.utils.sse_manager import sse_manager
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +25,7 @@ router = APIRouter()
 
 
 class RunCreate(BaseModel):
-    mode: str = "PLAN_ONLY"
+    mode: str = "PLAN_ONLY"  # PLAN_ONLY, DRY_RUN, EXECUTE
     deep: bool = False
     deep_top_n: int = 20
     filters: Optional[Dict[str, Any]] = None
@@ -50,6 +54,21 @@ class ProjectSelection(BaseModel):
 
 class SelectionRequest(BaseModel):
     selections: List[ProjectSelection]
+class BatchMigrationRequest(BaseModel):
+    """Request model for batch migration of multiple projects"""
+    project_ids: List[int]  # List of GitLab project IDs to migrate
+    mode: str = "PLAN_ONLY"
+    parallel_limit: int = 5  # Maximum concurrent migrations
+    resume_from: Optional[str] = None
+
+
+class BatchMigrationResponse(BaseModel):
+    """Response model for batch migration"""
+    batch_id: str  # Identifier for tracking this batch
+    total_projects: int
+    parallel_limit: int
+    status: str
+    message: str
 
 
 class RunResponse(BaseModel):
@@ -58,6 +77,8 @@ class RunResponse(BaseModel):
     mode: str
     status: str
     stage: Optional[str]
+    current_stage: Optional[str] = None
+    progress: Dict[str, Any] = {}
     started_at: Optional[str]
     finished_at: Optional[str]
     stats: Dict[str, int]
@@ -167,6 +188,8 @@ async def create_run(
             mode=created_run.mode,
             status=created_run.status,
             stage=created_run.stage,
+            current_stage=created_run.current_stage,
+            progress=created_run.progress,
             started_at=created_run.started_at.isoformat() if created_run.started_at else None,
             finished_at=created_run.finished_at.isoformat() if created_run.finished_at else None,
             stats=created_run.stats.model_dump(),
@@ -199,6 +222,8 @@ async def list_project_runs(
             mode=r.mode,
             status=r.status,
             stage=r.stage,
+            current_stage=r.current_stage,
+            progress=r.progress,
             started_at=r.started_at.isoformat() if r.started_at else None,
             finished_at=r.finished_at.isoformat() if r.finished_at else None,
             stats=r.stats.model_dump(),
@@ -222,6 +247,8 @@ async def get_run(
         mode=run.mode,
         status=run.status,
         stage=run.stage,
+        current_stage=run.current_stage,
+        progress=run.progress,
         started_at=run.started_at.isoformat() if run.started_at else None,
         finished_at=run.finished_at.isoformat() if run.finished_at else None,
         stats=run.stats.model_dump(),
@@ -248,13 +275,97 @@ async def cancel_run(
     return {"message": "Run cancelled successfully", "run_id": run_id}
 
 
+@router.get("/runs/{run_id}/checkpoint")
+async def get_checkpoint(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Get checkpoint status for a run"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Check if run has artifact root
+    if not run.artifact_root:
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
+    
+    # Look for checkpoint file in export directory
+    # Validate artifact_root to prevent path traversal
+    try:
+        artifact_root = Path(run.artifact_root).resolve()
+        checkpoint_file = (artifact_root / "export" / ".export_checkpoint.json").resolve()
+        
+        # Ensure checkpoint file is within artifact root
+        if not str(checkpoint_file).startswith(str(artifact_root)):
+            logger.warning(f"Potential path traversal attempt for run {run_id}")
+            return {
+                "has_checkpoint": False,
+                "components": {},
+                "resumable": False,
+                "resume_from": None
+            }
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
+    
+    if not checkpoint_file.exists():
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
+    
+    try:
+        # Read checkpoint data
+        with open(checkpoint_file, 'r') as f:
+            checkpoint_data = json.load(f)
+        
+        # Determine if resumable and from where
+        components = checkpoint_data.get("components", {})
+        resumable = False
+        resume_from = None
+        
+        # Find first non-completed component
+        for component_name, component_data in components.items():
+            if component_data.get("status") in ["in_progress", "failed"]:
+                resumable = True
+                if resume_from is None:
+                    resume_from = component_name
+        
+        return {
+            "has_checkpoint": True,
+            "components": components,
+            "resumable": resumable,
+            "resume_from": resume_from,
+            "started_at": checkpoint_data.get("started_at"),
+            "updated_at": checkpoint_data.get("updated_at"),
+            "errors": checkpoint_data.get("errors", [])
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to read checkpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read checkpoint: {str(e)}"
+        )
+
+
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
     run_id: str,
     resume_request: ResumeRequest = ResumeRequest(),
     current_user: User = Depends(require_operator)
 ):
-    """Resume a failed or cancelled run"""
+    """Resume a failed or cancelled run from checkpoint"""
     run = await check_run_access(run_id, current_user)
     
     run_service = RunService()
@@ -268,8 +379,12 @@ async def resume_run(
         )
     
     # Dispatch Celery task to resume the migration/discovery process
+    # Set resume flag in config
+    config = resumed_run.config_snapshot.copy()
+    config["resume"] = True
+    
     try:
-        run_migration.delay(str(resumed_run.id), resumed_run.mode, resumed_run.config_snapshot)
+        run_migration.delay(str(resumed_run.id), resumed_run.mode, config)
     except Exception as e:
         # If task dispatch fails, revert run status back to failed
         await run_service.update_run_status(
@@ -283,6 +398,62 @@ async def resume_run(
         )
     
     return {"message": "Run resumed successfully", "run_id": run_id}
+
+
+@router.delete("/runs/{run_id}/checkpoint")
+async def clear_checkpoint(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Clear checkpoint for a run to start fresh"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Only allow clearing checkpoint for failed or canceled runs
+    if run.status not in ["FAILED", "CANCELED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot clear checkpoint for run with status {run.status}. Only FAILED or CANCELED runs can have checkpoints cleared."
+        )
+    
+    # Check if run has artifact root
+    if not run.artifact_root:
+        return {"message": "No checkpoint to clear"}
+    
+    # Look for checkpoint file in export directory
+    # Validate artifact_root to prevent path traversal
+    try:
+        artifact_root = Path(run.artifact_root).resolve()
+        checkpoint_file = (artifact_root / "export" / ".export_checkpoint.json").resolve()
+        
+        # Ensure checkpoint file is within artifact root
+        if not str(checkpoint_file).startswith(str(artifact_root)):
+            logger.warning(f"Potential path traversal attempt for run {run_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid checkpoint path"
+            )
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact path"
+        )
+    
+    if not checkpoint_file.exists():
+        return {"message": "No checkpoint to clear"}
+    
+    try:
+        # Delete checkpoint file
+        checkpoint_file.unlink()
+        logger.info(f"Cleared checkpoint for run {run_id}")
+        return {"message": "Checkpoint cleared successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to clear checkpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear checkpoint: {str(e)}"
+        )
 
 
 @router.get("/runs/{run_id}/artifacts", response_model=List[ArtifactResponse])
@@ -505,6 +676,24 @@ async def get_discovery_results(
         )
     
     # Read the inventory file content
+@router.post("/runs/{run_id}/rollback")
+async def rollback_run(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Rollback all actions from a failed or partially completed migration"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Validate that rollback is appropriate for this run
+    if run.status not in ["FAILED", "COMPLETED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot rollback run with status {run.status}. Only FAILED or COMPLETED runs can be rolled back."
+        )
+    
+    # Check for executed_actions.json artifact
+    artifact_service = ArtifactService()
+    
     if not run.artifact_root:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -674,3 +863,80 @@ async def save_project_selection(
         "run_id": run_id,
         "selected_count": sum(1 for sel in request.selections if sel.selected)
     }
+    # Look for executed_actions.json file
+    executed_actions_path = Path(run.artifact_root) / "apply" / "executed_actions.json"
+    
+    if not executed_actions_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No executed actions found for this run. The run may not have reached the apply stage."
+        )
+    
+    try:
+        # Initialize ApplyAgent and GitHub client
+        from app.agents.apply_agent import ApplyAgent
+        from app.services.connection_service import ConnectionService
+        from github import Github
+        
+        connection_service = ConnectionService()
+        project_service = ProjectService()
+        
+        # Get project to fetch GitHub token
+        project = await project_service.get_project(str(run.project_id))
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Fetch GitHub connection and get decrypted token
+        github_conn = await connection_service.get_connection_by_type(str(run.project_id), "github")
+        if not github_conn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="GitHub connection not found for this project"
+            )
+        
+        github_token = await connection_service.get_decrypted_token(str(github_conn.id), str(run.project_id))
+        if not github_token:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve GitHub token"
+            )
+        
+        # Initialize GitHub client and apply agent
+        github_client = Github(github_token)
+        apply_agent = ApplyAgent()
+        apply_agent.github_client = github_client
+        apply_agent.execution_context = {
+            "github_token": github_token,
+            "output_dir": str(run.artifact_root)
+        }
+        
+        # Perform rollback
+        rollback_result = await apply_agent.rollback_migration(str(executed_actions_path))
+        
+        # Save rollback report
+        rollback_report_path = Path(run.artifact_root) / "apply" / "rollback_report.json"
+        rollback_report_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(rollback_report_path, 'w') as f:
+            json.dump({
+                **rollback_result,
+                "timestamp": datetime.utcnow().isoformat(),
+                "run_id": run_id
+            }, f, indent=2)
+        
+        return {
+            "message": "Rollback completed",
+            "run_id": run_id,
+            **rollback_result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Rollback failed for run {run_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Rollback failed: {str(e)}"
+        )

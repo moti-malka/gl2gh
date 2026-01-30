@@ -22,6 +22,8 @@ class ActionResult:
     retry_count: int = 0
     duration_seconds: float = 0.0
     timestamp: Optional[datetime] = None
+    rollback_data: Optional[Dict[str, Any]] = None
+    reversible: bool = True
     
     def __post_init__(self):
         if self.timestamp is None:
@@ -29,7 +31,7 @@ class ActionResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        return {
+        result = {
             "success": self.success,
             "action_id": self.action_id,
             "action_type": self.action_type,
@@ -37,8 +39,15 @@ class ActionResult:
             "error": self.error,
             "retry_count": self.retry_count,
             "duration_seconds": self.duration_seconds,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "rollback_data": self.rollback_data,
+            "reversible": self.reversible
         }
+        if self.simulated:
+            result["simulated"] = True
+            result["simulation_outcome"] = self.simulation_outcome
+            result["simulation_message"] = self.simulation_message
+        return result
 
 
 class BaseAction(ABC):
@@ -76,6 +85,29 @@ class BaseAction(ABC):
         """
         pass
     
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """
+        Rollback/undo the action.
+        
+        Args:
+            rollback_data: Data needed to undo the action (from ActionResult.rollback_data)
+            
+        Returns:
+            True if rollback successful, False otherwise
+        """
+        self.logger.warning(f"Rollback not implemented for action type: {self.action_type}")
+        return False
+    
+    def is_reversible(self) -> bool:
+        """
+        Check if this action type is reversible.
+        
+        Returns:
+            True if action can be rolled back, False otherwise
+        """
+        # By default, actions are reversible unless they override this
+        return True
+    
     def check_idempotency(self) -> Optional[ActionResult]:
         """
         Check if action has already been executed.
@@ -110,17 +142,26 @@ class BaseAction(ABC):
             self.context["id_mappings"][gitlab_type] = {}
         self.context["id_mappings"][gitlab_type][str(gitlab_id)] = github_id
     
-    async def execute_with_retry(self, max_retries: int = 3, base_delay: float = 1.0) -> ActionResult:
+    async def execute_with_retry(self, max_retries: int = 3, base_delay: float = 1.0, dry_run: bool = False) -> ActionResult:
         """
         Execute action with retry logic and exponential backoff.
         
         Args:
             max_retries: Maximum number of retry attempts
             base_delay: Base delay in seconds for exponential backoff
+            dry_run: If True, simulate instead of executing
             
         Returns:
             ActionResult
         """
+        # In dry-run mode, call simulate() instead of execute()
+        if dry_run:
+            self.logger.info(f"Simulating action {self.action_id}")
+            start_time = time.time()
+            result = await self.simulate()
+            result.duration_seconds = time.time() - start_time
+            return result
+        
         # Check idempotency first
         previous_result = self.check_idempotency()
         if previous_result:

@@ -137,6 +137,16 @@ export const runsAPI = {
   
   saveProjectSelection: (runId, selections) =>
     apiClient.post(`/runs/${runId}/selection`, { selections }),
+  getCheckpoint: (runId) =>
+    apiClient.get(`/runs/${runId}/checkpoint`),
+  
+  resume: (runId) =>
+    apiClient.post(`/runs/${runId}/resume`),
+  
+  clearCheckpoint: (runId) =>
+    apiClient.delete(`/runs/${runId}/checkpoint`),
+  getProgress: (runId) =>
+    apiClient.get(`/runs/${runId}/progress`),
 };
 
 // Events API

@@ -30,6 +30,7 @@ from app.agents.plan_agent import PlanAgent
 from app.agents.apply_agent import ApplyAgent
 from app.agents.verify_agent import VerifyAgent
 from app.agents.orchestrator import AgentOrchestrator, MigrationMode
+from app.agents.batch_orchestrator import BatchOrchestrator, SharedResources
 
 __all__ = [
     # Base classes
@@ -47,4 +48,6 @@ __all__ = [
     # Orchestration
     'AgentOrchestrator',
     'MigrationMode',
+    'BatchOrchestrator',
+    'SharedResources',
 ]

@@ -15,6 +15,7 @@ import { RunsListPage } from './pages/RunsListPage';
 import { RunCreationPage } from './pages/RunCreationPage';
 import { RunDashboardPage } from './pages/RunDashboardPage';
 import { UserMappingPage } from './pages/UserMappingPage';
+import { QuickMigratePage } from './pages/QuickMigratePage';
 import './App.css';
 
 function App() {
@@ -47,6 +48,7 @@ function AppContent() {
             </div>
             <div className="nav-links">
               <Link to="/projects">Projects</Link>
+              <Link to="/quick-migrate">Quick Migrate</Link>
               <Link to="/docs">Docs</Link>
               {user && (
                 <div className="user-menu">
@@ -72,6 +74,14 @@ function AppContent() {
               ) : (
                 <HomePage />
               )
+            }
+          />
+          <Route
+            path="/quick-migrate"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <QuickMigratePage />
+              </ProtectedRoute>
             }
           />
           <Route

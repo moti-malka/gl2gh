@@ -4,20 +4,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { runsAPI, eventsAPI } from '../services/api';
-import { wsService } from '../services/websocket';
+import { progressService } from '../services/progress';
 import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
 import { ProjectSelectionPanel } from '../components/ProjectSelectionPanel';
+import { CheckpointPanel } from '../components/CheckpointPanel';
 import './RunDashboardPage.css';
 
 export const RunDashboardPage = () => {
   const { runId } = useParams();
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
+  const [checkpoint, setCheckpoint] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showProjectSelection, setShowProjectSelection] = useState(false);
   const [discoveredProjects, setDiscoveredProjects] = useState([]);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
+  const [connectionMethod, setConnectionMethod] = useState(null);
   const toast = useToast();
 
   const loadDiscoveryResults = useCallback(async () => {
@@ -58,6 +61,14 @@ export const RunDashboardPage = () => {
         // Only load discovery results once
         if (discoveredProjects.length === 0 && !showProjectSelection) {
           await loadDiscoveryResults();
+      // Load checkpoint if run is failed or canceled
+      if (['FAILED', 'CANCELED'].includes(runResponse.data.status)) {
+        try {
+          const checkpointResponse = await runsAPI.getCheckpoint(runId);
+          setCheckpoint(checkpointResponse.data);
+        } catch (error) {
+          console.log('No checkpoint available:', error);
+          setCheckpoint(null);
         }
       }
     } catch (error) {
@@ -88,19 +99,21 @@ export const RunDashboardPage = () => {
   useEffect(() => {
     loadRunData();
     
-    // Subscribe to real-time updates
-    const unsubscribe = wsService.subscribeToRun(runId, (data) => {
+    // Subscribe to real-time updates with automatic fallback
+    const unsubscribe = progressService.subscribeToRun(runId, (data) => {
       setRun(prev => ({ ...prev, ...data }));
       
       // Add new event if included
       if (data.event) {
         setEvents(prev => [data.event, ...prev]);
       }
+      
+      // Update connection method indicator
+      setConnectionMethod(progressService.getConnectionMethod());
     });
 
     return () => {
       unsubscribe();
-      wsService.unsubscribeFromRun(runId);
     };
   }, [runId, loadRunData]);
 
@@ -116,6 +129,32 @@ export const RunDashboardPage = () => {
     } catch (error) {
       console.error('Failed to cancel run:', error);
       toast.error('Failed to cancel run');
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await runsAPI.resume(runId);
+      toast.success('Run resumed successfully');
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to resume run:', error);
+      toast.error('Failed to resume run');
+    }
+  };
+
+  const handleStartFresh = async () => {
+    if (!window.confirm('Are you sure you want to clear the checkpoint and start fresh? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await runsAPI.clearCheckpoint(runId);
+      toast.success('Checkpoint cleared');
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to clear checkpoint:', error);
+      toast.error('Failed to clear checkpoint');
     }
   };
 
@@ -163,11 +202,20 @@ export const RunDashboardPage = () => {
           </div>
           <h1>Migration Run Dashboard</h1>
         </div>
-        {isRunning && (
-          <button onClick={handleCancel} className="btn btn-danger">
-            Cancel Run
-          </button>
-        )}
+        <div className="header-actions">
+          {connectionMethod && (
+            <span className={`connection-indicator connection-${connectionMethod}`} title={`Connected via ${connectionMethod.toUpperCase()}`}>
+              {connectionMethod === 'websocket' && '🔗 WebSocket'}
+              {connectionMethod === 'sse' && '📡 SSE'}
+              {connectionMethod === 'polling' && '🔄 Polling'}
+            </span>
+          )}
+          {isRunning && (
+            <button onClick={handleCancel} className="btn btn-danger">
+              Cancel Run
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Show Project Selection Panel if discovery completed and selection not made */}
@@ -209,6 +257,15 @@ export const RunDashboardPage = () => {
           <p>{getElapsedTime()}</p>
         </div>
       </div>
+
+      {/* Show checkpoint panel for failed/canceled runs */}
+      {['FAILED', 'CANCELED'].includes(run.status) && checkpoint && checkpoint.has_checkpoint && (
+        <CheckpointPanel
+          checkpoint={checkpoint}
+          onResume={handleResume}
+          onStartFresh={handleStartFresh}
+        />
+      )}
 
       <div className="progress-section">
         <h2>Overall Progress</h2>
@@ -259,20 +316,86 @@ export const RunDashboardPage = () => {
               <p>No events yet.</p>
             </div>
           ) : (
-            events.map((event, index) => (
-              <div key={index} className={`event-item event-${event.type}`}>
-                <span className="event-time">
-                  {new Date(event.timestamp).toLocaleTimeString()}
-                </span>
-                <span className={`event-type ${event.type}`}>
-                  {event.type}
-                </span>
-                <span className="event-message">{event.message}</span>
-              </div>
-            ))
+            events.map((event, index) => {
+              const isError = event.type === 'error';
+              const errorDetails = event.error_details || event.payload?.error_details;
+              
+              return (
+                <div key={index} className={`event-item event-${event.type}`}>
+                  <div>
+                    <span className="event-time">
+                      {new Date(event.timestamp).toLocaleTimeString()}
+                    </span>
+                    <span className={`event-type ${event.type}`}>
+                      {event.type}
+                    </span>
+                    <span className="event-message">{event.message}</span>
+                  </div>
+                  
+                  {isError && errorDetails && (
+                    <div className="error-details">
+                      {errorDetails.code && (
+                        <div className="error-code">
+                          <strong>Error Code:</strong> {errorDetails.code}
+                        </div>
+                      )}
+                      {errorDetails.suggestion && (
+                        <div className="error-suggestion">
+                          <strong>💡 Suggestion:</strong> {errorDetails.suggestion}
+                        </div>
+                      )}
+                      {errorDetails.retry_after && (
+                        <div className="error-retry">
+                          <strong>⏰ Retry After:</strong>{' '}
+                          {new Date(errorDetails.retry_after).toLocaleString()}
+                        </div>
+                      )}
+                      {errorDetails.technical && (
+                        <details className="error-technical">
+                          <summary>Technical Details</summary>
+                          <pre>{errorDetails.technical}</pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
+
+      {run.status === 'failed' && run.error_details && (
+        <div className="error-summary-section">
+          <h2>⚠️ Error Summary</h2>
+          <div className="error-summary-card">
+            <div className="error-category">
+              <strong>Category:</strong> {run.error_details.category || 'Unknown'}
+            </div>
+            <div className="error-message">
+              <strong>Message:</strong> {run.error_details.message || run.error}
+            </div>
+            {run.error_details.suggestion && (
+              <div className="error-suggestion-box">
+                <h3>💡 How to fix:</h3>
+                <p>{run.error_details.suggestion}</p>
+              </div>
+            )}
+            {run.error_details.retry_after && (
+              <div className="error-retry-info">
+                <strong>⏰ You can retry after:</strong>{' '}
+                {new Date(run.error_details.retry_after).toLocaleString()}
+              </div>
+            )}
+            {run.error_details.technical && (
+              <details className="error-technical-details">
+                <summary>View Technical Details</summary>
+                <pre>{run.error_details.technical}</pre>
+              </details>
+            )}
+          </div>
+        </div>
+      )}
 
       {run.status === 'completed' && (
         <div className="artifacts-section">
