@@ -664,7 +664,10 @@ class ExportAgent(BaseAgent):
             
             # Process each package
             enhanced_packages = []
-            supported_types = {"npm", "maven", "nuget", "pypi", "composer", "conan", "generic", "golang"}
+            # Package types recognized by GitLab (we can download them)
+            recognized_types = {"npm", "maven", "nuget", "pypi", "composer", "conan", "generic", "golang"}
+            # Package types that can be automatically migrated to GitHub Packages
+            migrable_types = {"npm", "maven", "nuget"}
             total_size = 0
             downloaded_count = 0
             
@@ -714,7 +717,7 @@ class ExportAgent(BaseAgent):
                         "name": package_name,
                         "version": package_version,
                         "package_type": package_type,
-                        "supported": package_type in supported_types,
+                        "migrable": package_type in migrable_types,
                         "files": downloaded_files,
                         "created_at": package.get("created_at"),
                         "original_metadata": package
@@ -728,7 +731,7 @@ class ExportAgent(BaseAgent):
                         "name": package_name,
                         "version": package_version,
                         "package_type": package_type,
-                        "supported": package_type in supported_types,
+                        "migrable": package_type in migrable_types,
                         "files": [],
                         "download_error": str(e),
                         "created_at": package.get("created_at"),
@@ -745,15 +748,15 @@ class ExportAgent(BaseAgent):
                 "downloaded_files": downloaded_count,
                 "total_size_bytes": total_size,
                 "by_type": {},
-                "supported_count": sum(1 for p in enhanced_packages if p.get("supported")),
-                "unsupported_count": sum(1 for p in enhanced_packages if not p.get("supported"))
+                "migrable_count": sum(1 for p in enhanced_packages if p.get("migrable")),
+                "non_migrable_count": sum(1 for p in enhanced_packages if not p.get("migrable"))
             }
             
             # Count by type
             for package in enhanced_packages:
                 pkg_type = package.get("package_type", "unknown")
                 if pkg_type not in inventory["by_type"]:
-                    inventory["by_type"][pkg_type] = {"count": 0, "supported": pkg_type in supported_types}
+                    inventory["by_type"][pkg_type] = {"count": 0, "migrable": pkg_type in migrable_types}
                 inventory["by_type"][pkg_type]["count"] += 1
             
             with open(packages_dir / "inventory.json", 'w') as f:

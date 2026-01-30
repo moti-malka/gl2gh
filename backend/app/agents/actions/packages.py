@@ -1,9 +1,7 @@
 """Package-related actions"""
 
 import os
-import subprocess
 from typing import Any, Dict
-from pathlib import Path
 from .base import BaseAction, ActionResult
 
 
@@ -18,7 +16,18 @@ class PublishPackageAction(BaseAction):
             version = self.parameters["version"]
             package_files = self.parameters.get("files", [])
             
-            # Check if package type is supported
+            # Validate target_repo format
+            if '/' not in target_repo:
+                return ActionResult(
+                    success=False,
+                    action_id=self.action_id,
+                    action_type=self.action_type,
+                    outputs={},
+                    error=f"Invalid target_repo format: '{target_repo}'. Expected 'owner/repo'."
+                )
+            
+            # Check if package type is supported for automated migration
+            # Only npm, maven, and nuget have GitHub Packages support
             supported_types = {"npm", "maven", "nuget"}
             
             if package_type not in supported_types:

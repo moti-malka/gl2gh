@@ -416,7 +416,7 @@ class TestPackageActions:
         assert result.outputs["package_name"] == "test-package"
         assert result.outputs["version"] == "1.0.0"
         assert result.outputs["package_type"] == "npm"
-        assert result.outputs["status"] in ["published", "published"]  # Should provide manual steps
+        assert result.outputs["status"] == "published"  # Action succeeds with manual setup instructions
         assert "details" in result.outputs
     
     @pytest.mark.asyncio

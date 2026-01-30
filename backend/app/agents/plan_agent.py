@@ -752,12 +752,12 @@ class PlanAgent(BaseAgent):
             package_name = package.get("name", "unknown")
             package_type = package.get("package_type", "unknown")
             package_version = package.get("version", "unknown")
-            supported = package.get("supported", False)
+            migrable = package.get("migrable", False)
             files = package.get("files", [])
             
-            # Generate action description based on support status
-            if not supported:
-                description = f"Document unsupported package: {package_type}/{package_name}@{package_version}"
+            # Generate action description based on migrability
+            if not migrable:
+                description = f"Document non-migrable package: {package_type}/{package_name}@{package_version}"
             elif not files:
                 description = f"Document package without files: {package_type}/{package_name}@{package_version}"
             else:
@@ -774,7 +774,7 @@ class PlanAgent(BaseAgent):
                     "package_name": package_name,
                     "version": package_version,
                     "files": files,
-                    "supported": supported,
+                    "migrable": migrable,
                     "package_id": package_id
                 },
                 dependencies=[repo_create_id],
@@ -784,10 +784,10 @@ class PlanAgent(BaseAgent):
                 skip_if=None  # Don't skip, we want to report status
             )
         
-        # Add a summary action if there are unsupported packages
-        unsupported_packages = [p for p in packages if not p.get("supported", False)]
-        if unsupported_packages:
-            self.log_event("INFO", f"Found {len(unsupported_packages)} unsupported packages that require manual migration")
+        # Add a summary log if there are non-migrable packages
+        non_migrable_packages = [p for p in packages if not p.get("migrable", False)]
+        if non_migrable_packages:
+            self.log_event("INFO", f"Found {len(non_migrable_packages)} non-migrable packages that require manual migration")
         
         
         # Phase 9: Governance - Branch protection

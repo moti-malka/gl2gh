@@ -385,7 +385,7 @@ async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
         npm_pkg = next(p for p in packages if p["package_type"] == "npm")
         assert npm_pkg["name"] == "package1"
         assert npm_pkg["version"] == "1.0.0"
-        assert npm_pkg["supported"] is True
+        assert npm_pkg["migrable"] is True
         assert len(npm_pkg["files"]) == 1
         assert npm_pkg["files"][0]["file_name"] == "package1-1.0.0.tgz"
         
@@ -393,7 +393,7 @@ async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
         maven_pkg = next(p for p in packages if p["package_type"] == "maven")
         assert maven_pkg["name"] == "maven-package"
         assert maven_pkg["version"] == "2.0.0"
-        assert maven_pkg["supported"] is True
+        assert maven_pkg["migrable"] is True
         assert len(maven_pkg["files"]) == 2
     
     # Check inventory.json exists
@@ -404,8 +404,8 @@ async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
         inventory = json.load(f)
         assert inventory["total_packages"] == 2
         assert inventory["downloaded_files"] == 3
-        assert inventory["supported_count"] == 2
-        assert inventory["unsupported_count"] == 0
+        assert inventory["migrable_count"] == 2
+        assert inventory["non_migrable_count"] == 0
         assert "npm" in inventory["by_type"]
         assert "maven" in inventory["by_type"]
     
