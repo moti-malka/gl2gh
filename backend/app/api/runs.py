@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from datetime import datetime
 import json
 import logging
 
@@ -38,6 +39,17 @@ class ApplyRequest(BaseModel):
 class VerifyRequest(BaseModel):
     gitlab_project_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
+
+
+class ProjectSelection(BaseModel):
+    gitlab_project_id: int
+    path_with_namespace: str
+    target_repo_name: str
+    selected: bool
+
+
+class SelectionRequest(BaseModel):
+    selections: List[ProjectSelection]
 
 
 class RunResponse(BaseModel):
@@ -459,3 +471,163 @@ async def verify_run(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start verify task"
         )
+
+
+@router.get("/runs/{run_id}/discovery-results")
+async def get_discovery_results(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Get discovery results for a run"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Check if discovery has completed
+    if run.stage not in ["EXPORT", "TRANSFORM", "PLAN", "APPLY", "VERIFY"] and run.status != "COMPLETED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Discovery has not completed yet"
+        )
+    
+    # Get discovery artifacts (inventory.json)
+    artifact_service = ArtifactService()
+    discovery_artifacts = await artifact_service.list_artifacts(run_id, artifact_type="inventory")
+    
+    if not discovery_artifacts:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No discovery artifacts found for this run"
+        )
+    
+    # Read the inventory file content
+    if not run.artifact_root:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run has no artifact root configured"
+        )
+    
+    # Get the first inventory artifact
+    inventory_artifact = discovery_artifacts[0]
+    inventory_file_path = Path(run.artifact_root) / inventory_artifact.path
+    
+    if not inventory_file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory file not found"
+        )
+    
+    try:
+        # Read and parse the inventory file
+        with open(inventory_file_path, 'r') as f:
+            inventory_content = json.load(f)
+        
+        # Extract projects with enhanced metrics
+        projects = inventory_content.get("projects", [])
+        enhanced_projects = []
+        
+        for project in projects:
+            components = project.get("components", {})
+            
+            # Calculate metrics
+            repo = components.get("repository", {})
+            commits_count = repo.get("branches_count", 0)  # Approximate
+            
+            issues = components.get("issues", {})
+            issues_count = issues.get("opened_count", 0)
+            
+            mrs = components.get("merge_requests", {})
+            mrs_count = mrs.get("opened_count", 0)
+            
+            ci_cd = components.get("ci_cd", {})
+            has_ci = ci_cd.get("has_gitlab_ci", False)
+            
+            # Calculate readiness score (0-100)
+            # Simple heuristic: projects with fewer components are "easier"
+            score = 100
+            if has_ci:
+                score -= 15  # CI requires conversion
+            if issues_count > 0:
+                score -= min(10, issues_count)  # More issues = more complex
+            if mrs_count > 0:
+                score -= min(10, mrs_count * 2)  # More MRs = more complex
+            score = max(0, score)
+            
+            enhanced_projects.append({
+                "id": project.get("id"),
+                "name": project.get("name"),
+                "path_with_namespace": project.get("path_with_namespace"),
+                "description": project.get("description"),
+                "web_url": project.get("web_url"),
+                "metrics": {
+                    "commits": commits_count,
+                    "issues": issues_count,
+                    "merge_requests": mrs_count,
+                    "has_ci": has_ci,
+                },
+                "readiness_score": score,
+                "components": components
+            })
+        
+        return {
+            "version": inventory_content.get("version"),
+            "generated_at": inventory_content.get("generated_at"),
+            "projects_count": len(enhanced_projects),
+            "projects": enhanced_projects
+        }
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to parse inventory file"
+        )
+    except Exception as e:
+        logger.error(f"Failed to read inventory file: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to read inventory file"
+        )
+
+
+@router.post("/runs/{run_id}/selection")
+async def save_project_selection(
+    run_id: str,
+    request: SelectionRequest,
+    current_user: User = Depends(require_operator)
+):
+    """Save user's project selection for migration"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Validate that all project IDs exist in the discovery results
+    from app.db import get_database
+    from bson import ObjectId
+    
+    db = await get_database()
+    
+    # Store selection in run's config
+    selection_data = {
+        "selected_projects": [
+            {
+                "gitlab_project_id": sel.gitlab_project_id,
+                "path_with_namespace": sel.path_with_namespace,
+                "target_repo_name": sel.target_repo_name,
+                "selected": sel.selected
+            }
+            for sel in request.selections
+        ],
+        "selected_at": datetime.utcnow().isoformat()
+    }
+    
+    # Update run with selection data
+    await db["migration_runs"].update_one(
+        {"_id": ObjectId(run_id)},
+        {
+            "$set": {
+                "config_snapshot.project_selection": selection_data,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return {
+        "message": "Project selection saved",
+        "run_id": run_id,
+        "selected_count": sum(1 for sel in request.selections if sel.selected)
+    }

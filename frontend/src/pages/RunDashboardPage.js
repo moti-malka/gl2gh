@@ -7,6 +7,7 @@ import { runsAPI, eventsAPI } from '../services/api';
 import { wsService } from '../services/websocket';
 import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
+import { ProjectSelectionPanel } from '../components/ProjectSelectionPanel';
 import './RunDashboardPage.css';
 
 export const RunDashboardPage = () => {
@@ -14,6 +15,9 @@ export const RunDashboardPage = () => {
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showProjectSelection, setShowProjectSelection] = useState(false);
+  const [discoveredProjects, setDiscoveredProjects] = useState([]);
+  const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const toast = useToast();
 
   const loadRunData = useCallback(async () => {
@@ -26,6 +30,17 @@ export const RunDashboardPage = () => {
       
       setRun(runResponse.data);
       setEvents(eventsResponse.data);
+      
+      // Check if discovery has completed and we should show project selection
+      const runData = runResponse.data;
+      if (runData.stage === 'EXPORT' || 
+          (runData.stage === 'DISCOVER' && runData.status === 'COMPLETED') ||
+          (runData.status === 'COMPLETED' && runData.mode === 'DISCOVER_ONLY')) {
+        // Check if project selection hasn't been made yet
+        if (!runData.config_snapshot?.project_selection) {
+          await loadDiscoveryResults();
+        }
+      }
     } catch (error) {
       console.error('Failed to load run:', error);
       toast.error('Failed to load run details');
@@ -33,6 +48,40 @@ export const RunDashboardPage = () => {
       setLoading(false);
     }
   }, [runId, toast]);
+
+  const loadDiscoveryResults = async () => {
+    setLoadingDiscovery(true);
+    try {
+      const response = await runsAPI.getDiscoveryResults(runId);
+      setDiscoveredProjects(response.data.projects || []);
+      setShowProjectSelection(true);
+    } catch (error) {
+      console.error('Failed to load discovery results:', error);
+      // Don't show error toast if discovery hasn't completed yet
+      if (error.response?.status !== 400) {
+        toast.error('Failed to load discovery results');
+      }
+    } finally {
+      setLoadingDiscovery(false);
+    }
+  };
+
+  const handleProjectSelectionContinue = async (selections) => {
+    try {
+      await runsAPI.saveProjectSelection(runId, selections);
+      toast.success('Project selection saved');
+      setShowProjectSelection(false);
+      // Reload run data to update UI
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to save project selection:', error);
+      toast.error('Failed to save project selection');
+    }
+  };
+
+  const handleProjectSelectionBack = () => {
+    setShowProjectSelection(false);
+  };
 
   useEffect(() => {
     loadRunData();
@@ -118,6 +167,22 @@ export const RunDashboardPage = () => {
           </button>
         )}
       </div>
+
+      {/* Show Project Selection Panel if discovery completed and selection not made */}
+      {showProjectSelection && discoveredProjects.length > 0 && (
+        <ProjectSelectionPanel
+          runId={runId}
+          discoveredProjects={discoveredProjects}
+          onContinue={handleProjectSelectionContinue}
+          onBack={handleProjectSelectionBack}
+        />
+      )}
+
+      {loadingDiscovery && (
+        <div className="loading-discovery">
+          <Loading message="Loading discovery results..." />
+        </div>
+      )}
 
       <div className="run-overview">
         <div className="overview-card">
