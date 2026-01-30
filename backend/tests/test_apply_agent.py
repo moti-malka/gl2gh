@@ -378,3 +378,179 @@ class TestApplyAgent:
             "output_dir": "/tmp/test"
         }
         assert agent.validate_inputs(invalid_plan) is False
+
+
+class TestPackageActions:
+    """Test package-related actions"""
+    
+    @pytest.mark.asyncio
+    async def test_publish_npm_package(self):
+        """Test npm package publishing action"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-001",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "npm",
+                "package_name": "test-package",
+                "version": "1.0.0",
+                "files": [
+                    {
+                        "file_name": "test-package-1.0.0.tgz",
+                        "size": 1024,
+                        "local_path": "packages/npm/test-package/1.0.0/test-package-1.0.0.tgz"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["package_name"] == "test-package"
+        assert result.outputs["version"] == "1.0.0"
+        assert result.outputs["package_type"] == "npm"
+        assert result.outputs["status"] in ["published", "published"]  # Should provide manual steps
+        assert "details" in result.outputs
+    
+    @pytest.mark.asyncio
+    async def test_publish_maven_package(self):
+        """Test Maven package publishing action"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-002",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "maven",
+                "package_name": "maven-lib",
+                "version": "2.0.0",
+                "files": [
+                    {
+                        "file_name": "maven-lib-2.0.0.jar",
+                        "size": 2048,
+                        "local_path": "packages/maven/maven-lib/2.0.0/maven-lib-2.0.0.jar"
+                    },
+                    {
+                        "file_name": "maven-lib-2.0.0.pom",
+                        "size": 512,
+                        "local_path": "packages/maven/maven-lib/2.0.0/maven-lib-2.0.0.pom"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["package_name"] == "maven-lib"
+        assert result.outputs["version"] == "2.0.0"
+        assert result.outputs["package_type"] == "maven"
+    
+    @pytest.mark.asyncio
+    async def test_publish_unsupported_package(self):
+        """Test unsupported package type handling"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-003",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "pypi",  # Unsupported
+                "package_name": "python-lib",
+                "version": "1.0.0",
+                "files": [
+                    {
+                        "file_name": "python-lib-1.0.0.whl",
+                        "size": 3072,
+                        "local_path": "packages/pypi/python-lib/1.0.0/python-lib-1.0.0.whl"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True  # Still succeeds but marks as unsupported
+        assert result.outputs["package_name"] == "python-lib"
+        assert result.outputs["package_type"] == "pypi"
+        assert result.outputs["status"] == "unsupported"
+        assert "manual migration" in result.outputs["note"].lower()
+    
+    @pytest.mark.asyncio
+    async def test_publish_package_without_files(self):
+        """Test package without files"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-004",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "npm",
+                "package_name": "missing-package",
+                "version": "1.0.0",
+                "files": []  # No files
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["status"] == "no_files"
+        assert "manual" in result.outputs["note"].lower()
+    
+    @pytest.mark.asyncio
+    async def test_publish_nuget_package(self):
+        """Test NuGet package publishing action"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-005",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "nuget",
+                "package_name": "NugetLib",
+                "version": "3.0.0",
+                "files": [
+                    {
+                        "file_name": "NugetLib.3.0.0.nupkg",
+                        "size": 4096,
+                        "local_path": "packages/nuget/NugetLib/3.0.0/NugetLib.3.0.0.nupkg"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["package_name"] == "NugetLib"
+        assert result.outputs["version"] == "3.0.0"
+        assert result.outputs["package_type"] == "nuget"
+        assert "details" in result.outputs
