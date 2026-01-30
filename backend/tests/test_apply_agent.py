@@ -456,6 +456,7 @@ class TestApplyAgent:
         """Test dry-run mode execution"""
         from app.agents.apply_agent import ApplyAgent
         from unittest.mock import Mock, patch
+        from github import GithubException
         import tempfile
         import os
         
@@ -465,9 +466,8 @@ class TestApplyAgent:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Mock GitHub client
             mock_github = Mock()
-            mock_repo = Mock()
-            mock_repo.full_name = "org/repo"
-            mock_github.get_repo.side_effect = Exception("Not found")  # Repo doesn't exist
+            # Simulate repo doesn't exist (404)
+            mock_github.get_repo.side_effect = GithubException(404, {"message": "Not found"}, None)
             
             plan = {
                 "actions": [

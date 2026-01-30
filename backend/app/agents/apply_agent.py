@@ -238,7 +238,7 @@ class ApplyAgent(BaseAgent):
                 # Handle rate limiting (skip in dry-run mode)
                 dry_run = self.execution_context.get("dry_run", False)
                 if not dry_run:
-                    self._check_rate_limit()
+                    await self._check_rate_limit()
                 
                 # Execute with retry (or simulate if dry_run)
                 result = await action_executor.execute_with_retry(
@@ -343,13 +343,11 @@ class ApplyAgent(BaseAgent):
         
         for result in results:
             if result.simulated and result.simulation_outcome:
-                outcome_counts[result.simulation_outcome] = outcome_counts.get(result.simulation_outcome, 0) + 1
+                outcome_counts[result.simulation_outcome] += 1
             
             # Check for actions requiring user input
-            action_params = None
             for action in plan.get("actions", []):
                 if action.get("id") == result.action_id:
-                    action_params = action.get("parameters", {})
                     if action.get("requires_user_input"):
                         warnings.append(f"Action {result.action_id} requires manual configuration")
                     break
