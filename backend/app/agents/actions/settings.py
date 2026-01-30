@@ -118,6 +118,7 @@ class CreateWebhookAction(BaseAction):
             secret = self.parameters.get("secret")
             content_type = self.parameters.get("content_type", "json")
             active = self.parameters.get("active", True)
+            insecure_ssl = self.parameters.get("insecure_ssl", False)
             
             if not secret:
                 return ActionResult(
@@ -133,7 +134,8 @@ class CreateWebhookAction(BaseAction):
             config = {
                 "url": url,
                 "content_type": content_type,
-                "secret": secret
+                "secret": secret,
+                "insecure_ssl": "1" if insecure_ssl else "0"  # GitHub API expects string "0" or "1"
             }
             
             hook = repo.create_hook(
@@ -151,7 +153,8 @@ class CreateWebhookAction(BaseAction):
                     "webhook_id": hook.id,
                     "webhook_url": url,
                     "events": events,
-                    "target_repo": target_repo
+                    "target_repo": target_repo,
+                    "insecure_ssl": insecure_ssl
                 }
             )
         except Exception as e:
