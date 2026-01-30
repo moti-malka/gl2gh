@@ -268,8 +268,14 @@ class TransformAgent(BaseAgent):
         
         # Extract CI job names for use in branch protection
         ci_jobs = []
-        if isinstance(gitlab_ci_yaml, dict):
-            ci_jobs = self.protection_transformer.get_required_status_checks_from_ci(gitlab_ci_yaml)
+        try:
+            parsed_ci = gitlab_ci_yaml
+            if isinstance(gitlab_ci_yaml, str):
+                parsed_ci = yaml.safe_load(gitlab_ci_yaml)
+            if isinstance(parsed_ci, dict):
+                ci_jobs = self.protection_transformer.get_required_status_checks_from_ci(parsed_ci)
+        except Exception as e:
+            self.log_event("WARNING", f"Failed to extract CI jobs: {str(e)}")
         
         self.log_event("INFO", f"Generated GitHub Actions workflow: {workflow_file}")
         
