@@ -502,3 +502,100 @@ def run_verify(run_id: str, project_id: int, config: dict):
         logger.error(f"Verify failed for project {project_id}: {str(e)}")
         return {"status": "failed", "error": str(e), "project_id": project_id}
 
+
+@celery_app.task(name='app.workers.tasks.run_batch_migration')
+def run_batch_migration(
+    batch_id: str,
+    project_id: str,
+    project_ids: list,
+    mode: str,
+    parallel_limit: int,
+    base_config: dict,
+    resume_from: str = None
+):
+    """
+    Execute batch migration of multiple projects in parallel.
+    
+    This task uses the BatchOrchestrator to migrate multiple GitLab
+    projects concurrently with configurable parallelism.
+    
+    Args:
+        batch_id: Unique identifier for this batch operation
+        project_id: GL2GH project ID (for settings/credentials)
+        project_ids: List of GitLab project IDs to migrate
+        mode: Migration mode (DISCOVER_ONLY, PLAN_ONLY, APPLY, FULL, etc.)
+        parallel_limit: Maximum number of concurrent migrations
+        base_config: Base configuration shared across all projects
+        resume_from: Optional agent to resume from
+    """
+    logger.info(
+        f"Starting batch migration {batch_id}: "
+        f"{len(project_ids)} projects, parallelism={parallel_limit}"
+    )
+    
+    try:
+        from app.agents import BatchOrchestrator, MigrationMode, SharedResources
+        from pathlib import Path
+        
+        # Create shared resources for the batch
+        shared_resources = SharedResources(
+            github_rate_limit=base_config.get("max_api_calls", 5000)
+        )
+        
+        # Create batch orchestrator
+        batch_orchestrator = BatchOrchestrator(shared_resources=shared_resources)
+        
+        # Prepare configs for each project
+        project_configs = []
+        for gitlab_project_id in project_ids:
+            project_config = base_config.copy()
+            project_config.update({
+                "project_id": gitlab_project_id,
+                "run_id": f"{batch_id}_{gitlab_project_id}",
+                "output_dir": f"artifacts/runs/{batch_id}/{gitlab_project_id}"
+            })
+            
+            # Create output directory
+            Path(project_config["output_dir"]).mkdir(parents=True, exist_ok=True)
+            
+            project_configs.append(project_config)
+        
+        # Execute batch migration
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            result = loop.run_until_complete(
+                batch_orchestrator.execute_batch_migration(
+                    project_configs=project_configs,
+                    mode=MigrationMode(mode),
+                    parallel_limit=parallel_limit,
+                    resume_from=resume_from
+                )
+            )
+        finally:
+            loop.close()
+        
+        # Log summary
+        logger.info(
+            f"Batch migration {batch_id} completed: "
+            f"status={result.get('status')}, "
+            f"successful={result.get('successful')}, "
+            f"failed={result.get('failed')}"
+        )
+        
+        # Store batch results (optional - could be saved to database)
+        # For now, just return the results
+        result["batch_id"] = batch_id
+        return result
+        
+    except Exception as e:
+        logger.error(f"Batch migration {batch_id} failed: {str(e)}")
+        return {
+            "batch_id": batch_id,
+            "status": "failed",
+            "error": str(e),
+            "total_projects": len(project_ids)
+        }
+
+
