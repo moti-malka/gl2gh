@@ -211,8 +211,51 @@ class CICDTransformer(BaseTransformer):
     def _convert_script_to_run(self, script: Any) -> str:
         """Convert GitLab CI script to GitHub Actions run"""
         if isinstance(script, list):
-            return "\n".join(script)
-        return str(script)
+            script_text = "\n".join(script)
+        else:
+            script_text = str(script)
+        
+        # Transform registry URLs in scripts
+        script_text = self._transform_registry_urls(script_text)
+        
+        return script_text
+    
+    def _transform_registry_urls(self, script: str) -> str:
+        """
+        Transform GitLab registry URLs to GitHub GHCR URLs in scripts.
+        
+        Handles:
+        - registry.gitlab.com → ghcr.io
+        - $CI_REGISTRY_IMAGE → ghcr.io/${{ github.repository }}
+        - $CI_REGISTRY → ghcr.io
+        """
+        transformations = {
+            'registry.gitlab.com': 'ghcr.io',
+            '$CI_REGISTRY_IMAGE': 'ghcr.io/${{ github.repository }}',
+            '${CI_REGISTRY_IMAGE}': 'ghcr.io/${{ github.repository }}',
+            '$CI_REGISTRY': 'ghcr.io',
+            '${CI_REGISTRY}': 'ghcr.io',
+        }
+        
+        transformed = script
+        transformations_applied = []
+        
+        for old, new in transformations.items():
+            if old in transformed:
+                transformed = transformed.replace(old, new)
+                # Track this transformation but only report significant ones (not base registry)
+                if old not in ['$CI_REGISTRY', '${CI_REGISTRY}'] and old not in transformations_applied:
+                    transformations_applied.append(old)
+        
+        # Report conversion gaps only once per transformation type
+        if transformations_applied:
+            self.conversion_gaps.append({
+                "type": "registry_url",
+                "message": f"Transformed registry references: {', '.join(transformations_applied)}",
+                "action": "Verify registry URLs are correct for your setup"
+            })
+        
+        return transformed
     
     def _convert_triggers(self, jobs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Convert GitLab CI triggers to GitHub Actions triggers"""
@@ -304,6 +347,9 @@ class CICDTransformer(BaseTransformer):
             "CI_JOB_ID": "${{ github.job }}",
             "CI_REPOSITORY_URL": "${{ github.repositoryUrl }}",
             "CI_DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
+            # Container registry mappings
+            "CI_REGISTRY": "ghcr.io",
+            "CI_REGISTRY_IMAGE": "ghcr.io/${{ github.repository }}",
         }
         return mappings.get(gitlab_var)
     

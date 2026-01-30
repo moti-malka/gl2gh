@@ -140,6 +140,8 @@ export const runsAPI = {
   
   clearCheckpoint: (runId) =>
     apiClient.delete(`/runs/${runId}/checkpoint`),
+  getProgress: (runId) =>
+    apiClient.get(`/runs/${runId}/progress`),
 };
 
 // Events API

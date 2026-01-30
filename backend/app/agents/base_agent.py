@@ -1,11 +1,13 @@
 """Base agent class using Microsoft Agent Framework"""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from datetime import datetime
 import asyncio
+import httpx
 from app.utils.logging import get_logger
 from app.agents.azure_ai_client import create_agent_with_instructions
+from app.utils.errors import create_gitlab_error, create_github_error, MigrationError
 
 logger = get_logger(__name__)
 
@@ -103,6 +105,50 @@ class BaseAgent(ABC):
         """
         pass
     
+    def handle_error(self, exception: Exception, context: Optional[str] = None) -> MigrationError:
+        """
+        Handle an exception and convert it to a user-friendly MigrationError.
+        
+        Args:
+            exception: The exception to handle
+            context: Optional context (e.g., project path, resource name)
+            
+        Returns:
+            MigrationError with user-friendly messaging
+        """
+        # Determine error type and create appropriate error
+        if isinstance(exception, httpx.HTTPError):
+            # Try to determine if it's GitLab or GitHub based on context
+            if context and 'github' in context.lower():
+                migration_error = create_github_error(exception, context)
+            else:
+                migration_error = create_gitlab_error(exception, context)
+        else:
+            # Generic error - create a simple MigrationError
+            migration_error = MigrationError(
+                category="unknown",
+                code="AGENT_ERROR_001",
+                message=f"An error occurred in {self.agent_name}",
+                technical=f"{type(exception).__name__}: {str(exception)}",
+                suggestion="Check the technical details for more information. If the problem persists, contact support.",
+                raw_error=exception
+            )
+        
+        # Log the error with full context
+        self.log_event(
+            "ERROR",
+            migration_error.message,
+            {
+                "error_code": migration_error.code,
+                "category": migration_error.category,
+                "technical": migration_error.technical,
+                "suggestion": migration_error.suggestion,
+                "context": context
+            }
+        )
+        
+        return migration_error
+    
     def log_event(self, level: str, message: str, payload: Optional[Dict] = None):
         """
         Log an event for tracking and debugging.
@@ -169,21 +215,31 @@ class BaseAgent(ABC):
                     raise Exception(f"Execution failed: {result.get('error', 'Unknown error')}")
                     
             except Exception as e:
-                last_error = e
+                # Handle the error and create user-friendly message
+                migration_error = self.handle_error(e, inputs.get("project_path") or inputs.get("context"))
+                last_error = migration_error
                 attempt += 1
-                self.log_event("ERROR", f"Execution failed (attempt {attempt}/{max_retries}): {str(e)}")
                 
                 if attempt < max_retries:
                     self.log_event("INFO", f"Retrying in {retry_delay} seconds...")
                     await asyncio.sleep(retry_delay)
         
-        # All retries exhausted
+        # All retries exhausted - format error for return
+        error_dict = last_error.to_dict() if isinstance(last_error, MigrationError) else {
+            "category": "unknown",
+            "code": "UNKNOWN",
+            "message": str(last_error),
+            "technical": str(last_error),
+            "suggestion": "Review the error details and try again"
+        }
+        
         return {
             "status": "failed",
-            "error": str(last_error),
+            "error": error_dict.get("message", str(last_error)),
+            "error_details": error_dict,
             "outputs": {},
             "artifacts": [],
-            "errors": [{"message": str(last_error), "step": "execution"}]
+            "errors": [error_dict]
         }
     
     def update_context(self, key: str, value: Any):

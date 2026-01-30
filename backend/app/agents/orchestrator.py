@@ -23,6 +23,7 @@ class MigrationMode(str, Enum):
     EXPORT_ONLY = "EXPORT_ONLY"
     TRANSFORM_ONLY = "TRANSFORM_ONLY"
     PLAN_ONLY = "PLAN_ONLY"
+    DRY_RUN = "DRY_RUN"
     APPLY = "APPLY"
     VERIFY = "VERIFY"
     FULL = "FULL"
@@ -161,6 +162,7 @@ class AgentOrchestrator:
             MigrationMode.EXPORT_ONLY: ["discovery", "export"],
             MigrationMode.TRANSFORM_ONLY: ["discovery", "export", "transform"],
             MigrationMode.PLAN_ONLY: ["discovery", "export", "transform", "plan"],
+            MigrationMode.DRY_RUN: ["discovery", "export", "transform", "plan", "apply"],
             MigrationMode.APPLY: ["discovery", "export", "transform", "plan", "apply"],
             MigrationMode.VERIFY: ["verify"],
             MigrationMode.FULL: full_sequence
@@ -201,9 +203,31 @@ class AgentOrchestrator:
             })
         
         elif agent_name == "export":
-            inputs.update({
+            # Extract project_id from discovered projects
+            discovered = self.shared_context.get("discovered_projects", [])
+            
+            # Prepare base inputs with output_dir
+            export_inputs = {
                 "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/export")
-            })
+            }
+            
+            if discovered:
+                # Take first project (TODO: support multi-project or user selection)
+                first_project = discovered[0]
+                export_inputs.update({
+                    "project_id": first_project["id"],
+                    "gitlab_url": config.get("gitlab_url"),
+                    "gitlab_token": config.get("gitlab_token")
+                })
+            else:
+                # Log warning - export agent will fail validation without project_id
+                self.logger.warning(
+                    "No discovered projects available for export. "
+                    "Export agent will fail validation. "
+                    "Ensure discovery agent ran successfully first."
+                )
+            
+            inputs.update(export_inputs)
         
         elif agent_name == "transform":
             inputs.update({
@@ -218,10 +242,13 @@ class AgentOrchestrator:
             })
         
         elif agent_name == "apply":
+            # Check if this is a dry run
+            dry_run = config.get("mode") == "DRY_RUN" or config.get("mode") == MigrationMode.DRY_RUN
             inputs.update({
                 "github_token": config.get("github_token"),
                 "plan": self.shared_context.get("plan"),
-                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/apply")
+                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/apply"),
+                "dry_run": dry_run
             })
         
         elif agent_name == "verify":

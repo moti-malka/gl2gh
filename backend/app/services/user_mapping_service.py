@@ -21,7 +21,9 @@ class UserMappingService(BaseService):
         github_username: Optional[str] = None,
         gitlab_email: Optional[str] = None,
         confidence: float = 0.0,
-        is_manual: bool = False
+        match_method: Optional[str] = None,
+        is_manual: bool = False,
+        project_id: Optional[str] = None
     ) -> UserMapping:
         """
         Store a user mapping
@@ -32,7 +34,9 @@ class UserMappingService(BaseService):
             github_username: Optional GitHub username
             gitlab_email: Optional GitLab email
             confidence: Confidence score (0.0 to 1.0)
+            match_method: Method used for matching (email, username, name, fuzzy_username, fuzzy_name, manual)
             is_manual: Whether mapping was manually set
+            project_id: Optional project ID for project-level mappings
             
         Returns:
             Created or updated user mapping
@@ -44,6 +48,9 @@ class UserMappingService(BaseService):
         try:
             if not ObjectId.is_valid(run_id):
                 raise ValueError(f"Invalid run ID: {run_id}")
+            
+            if project_id and not ObjectId.is_valid(project_id):
+                raise ValueError(f"Invalid project ID: {project_id}")
             
             # Check if mapping already exists
             existing = await self.db[self.COLLECTION].find_one({
@@ -63,6 +70,12 @@ class UserMappingService(BaseService):
                 if gitlab_email:
                     updates["gitlab_email"] = gitlab_email
                 
+                if match_method:
+                    updates["match_method"] = match_method
+                
+                if project_id:
+                    updates["project_id"] = ObjectId(project_id)
+                
                 result = await self.db[self.COLLECTION].find_one_and_update(
                     {"_id": existing["_id"]},
                     {"$set": updates},
@@ -79,10 +92,14 @@ class UserMappingService(BaseService):
                     "gitlab_email": gitlab_email,
                     "github_username": github_username,
                     "confidence": confidence,
+                    "match_method": match_method,
                     "is_manual": is_manual,
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow()
                 }
+                
+                if project_id:
+                    mapping_dict["project_id"] = ObjectId(project_id)
                 
                 result = await self.db[self.COLLECTION].insert_one(mapping_dict)
                 mapping_dict["_id"] = result.inserted_id
@@ -284,6 +301,36 @@ class UserMappingService(BaseService):
         try:
             await self.db[self.COLLECTION].create_index([("run_id", 1), ("gitlab_username", 1)], unique=True)
             await self.db[self.COLLECTION].create_index("run_id")
+            await self.db[self.COLLECTION].create_index("project_id")
             self.logger.info("User mapping indexes created")
         except PyMongoError as e:
             self.logger.error(f"Error creating user mapping indexes: {e}")
+    
+    async def get_project_mappings(self, project_id: str, skip: int = 0, limit: int = 1000) -> List[UserMapping]:
+        """
+        Get all user mappings for a project (across all runs)
+        
+        Args:
+            project_id: Project ID
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of user mappings
+        """
+        try:
+            if not ObjectId.is_valid(project_id):
+                return []
+            
+            cursor = self.db[self.COLLECTION].find(
+                {"project_id": ObjectId(project_id)}
+            ).skip(skip).limit(limit).sort("gitlab_username", 1)
+            
+            mappings = []
+            async for mapping_dict in cursor:
+                mappings.append(UserMapping(**mapping_dict))
+            return mappings
+            
+        except PyMongoError as e:
+            self.logger.error(f"Database error fetching user mappings for project {project_id}: {e}")
+            return []

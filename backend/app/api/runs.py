@@ -4,15 +4,20 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from datetime import datetime
 import json
 import logging
+import asyncio
+from sse_starlette.sse import EventSourceResponse
 
 from app.models import User
 from app.services import RunService, ArtifactService, ProjectService
 from app.services.connection_service import ConnectionService
+from app.services.report_service import MigrationReportGenerator
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
 from app.workers.tasks import run_migration, run_apply, run_verify
+from app.utils.sse_manager import sse_manager
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +25,7 @@ router = APIRouter()
 
 
 class RunCreate(BaseModel):
-    mode: str = "PLAN_ONLY"
+    mode: str = "PLAN_ONLY"  # PLAN_ONLY, DRY_RUN, EXECUTE
     deep: bool = False
     deep_top_n: int = 20
     filters: Optional[Dict[str, Any]] = None
@@ -40,12 +45,31 @@ class VerifyRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class BatchMigrationRequest(BaseModel):
+    """Request model for batch migration of multiple projects"""
+    project_ids: List[int]  # List of GitLab project IDs to migrate
+    mode: str = "PLAN_ONLY"
+    parallel_limit: int = 5  # Maximum concurrent migrations
+    resume_from: Optional[str] = None
+
+
+class BatchMigrationResponse(BaseModel):
+    """Response model for batch migration"""
+    batch_id: str  # Identifier for tracking this batch
+    total_projects: int
+    parallel_limit: int
+    status: str
+    message: str
+
+
 class RunResponse(BaseModel):
     id: str
     project_id: str
     mode: str
     status: str
     stage: Optional[str]
+    current_stage: Optional[str] = None
+    progress: Dict[str, Any] = {}
     started_at: Optional[str]
     finished_at: Optional[str]
     stats: Dict[str, int]
@@ -155,6 +179,8 @@ async def create_run(
             mode=created_run.mode,
             status=created_run.status,
             stage=created_run.stage,
+            current_stage=created_run.current_stage,
+            progress=created_run.progress,
             started_at=created_run.started_at.isoformat() if created_run.started_at else None,
             finished_at=created_run.finished_at.isoformat() if created_run.finished_at else None,
             stats=created_run.stats.model_dump(),
@@ -187,6 +213,8 @@ async def list_project_runs(
             mode=r.mode,
             status=r.status,
             stage=r.stage,
+            current_stage=r.current_stage,
+            progress=r.progress,
             started_at=r.started_at.isoformat() if r.started_at else None,
             finished_at=r.finished_at.isoformat() if r.finished_at else None,
             stats=r.stats.model_dump(),
@@ -210,6 +238,8 @@ async def get_run(
         mode=run.mode,
         status=run.status,
         stage=run.stage,
+        current_stage=run.current_stage,
+        progress=run.progress,
         started_at=run.started_at.isoformat() if run.started_at else None,
         finished_at=run.finished_at.isoformat() if run.finished_at else None,
         stats=run.stats.model_dump(),
@@ -602,4 +632,107 @@ async def verify_run(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start verify task"
+        )
+
+
+@router.post("/runs/{run_id}/rollback")
+async def rollback_run(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Rollback all actions from a failed or partially completed migration"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Validate that rollback is appropriate for this run
+    if run.status not in ["FAILED", "COMPLETED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot rollback run with status {run.status}. Only FAILED or COMPLETED runs can be rolled back."
+        )
+    
+    # Check for executed_actions.json artifact
+    artifact_service = ArtifactService()
+    
+    if not run.artifact_root:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run has no artifact root configured"
+        )
+    
+    # Look for executed_actions.json file
+    executed_actions_path = Path(run.artifact_root) / "apply" / "executed_actions.json"
+    
+    if not executed_actions_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No executed actions found for this run. The run may not have reached the apply stage."
+        )
+    
+    try:
+        # Initialize ApplyAgent and GitHub client
+        from app.agents.apply_agent import ApplyAgent
+        from app.services.connection_service import ConnectionService
+        from github import Github
+        
+        connection_service = ConnectionService()
+        project_service = ProjectService()
+        
+        # Get project to fetch GitHub token
+        project = await project_service.get_project(str(run.project_id))
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Fetch GitHub connection and get decrypted token
+        github_conn = await connection_service.get_connection_by_type(str(run.project_id), "github")
+        if not github_conn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="GitHub connection not found for this project"
+            )
+        
+        github_token = await connection_service.get_decrypted_token(str(github_conn.id), str(run.project_id))
+        if not github_token:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve GitHub token"
+            )
+        
+        # Initialize GitHub client and apply agent
+        github_client = Github(github_token)
+        apply_agent = ApplyAgent()
+        apply_agent.github_client = github_client
+        apply_agent.execution_context = {
+            "github_token": github_token,
+            "output_dir": str(run.artifact_root)
+        }
+        
+        # Perform rollback
+        rollback_result = await apply_agent.rollback_migration(str(executed_actions_path))
+        
+        # Save rollback report
+        rollback_report_path = Path(run.artifact_root) / "apply" / "rollback_report.json"
+        rollback_report_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(rollback_report_path, 'w') as f:
+            json.dump({
+                **rollback_result,
+                "timestamp": datetime.utcnow().isoformat(),
+                "run_id": run_id
+            }, f, indent=2)
+        
+        return {
+            "message": "Rollback completed",
+            "run_id": run_id,
+            **rollback_result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Rollback failed for run {run_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Rollback failed: {str(e)}"
         )
