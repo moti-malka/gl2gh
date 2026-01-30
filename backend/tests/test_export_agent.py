@@ -451,3 +451,168 @@ async def test_export_wiki_disabled(export_agent, mock_gitlab_client, tmp_path):
     
     wiki_dir = output_dir / "wiki"
     assert (wiki_dir / "wiki_disabled.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_extract_attachments(export_agent):
+    """Test attachment extraction from markdown"""
+    # Test image attachments
+    content1 = "Here's a screenshot: ![bug](/uploads/abc123/screenshot.png)"
+    attachments1 = export_agent._extract_attachments(content1)
+    assert "/uploads/abc123/screenshot.png" in attachments1
+    
+    # Test file attachments
+    content2 = "See log file: [error.log](/uploads/def456/error.log)"
+    attachments2 = export_agent._extract_attachments(content2)
+    assert "/uploads/def456/error.log" in attachments2
+    
+    # Test direct links with hash pattern (lowercase)
+    content3 = "Download from /uploads/abc789def/file.pdf here"
+    attachments3 = export_agent._extract_attachments(content3)
+    assert "/uploads/abc789def/file.pdf" in attachments3
+    
+    # Test direct links with uppercase hex (case-insensitive)
+    content3b = "Download from /uploads/ABC789DEF/file.pdf here"
+    attachments3b = export_agent._extract_attachments(content3b)
+    assert "/uploads/ABC789DEF/file.pdf" in attachments3b
+    
+    # Test multiple attachments
+    content4 = """
+    Multiple files:
+    ![image1](/uploads/aaa111/img1.png)
+    ![image2](/uploads/bbb222/img2.jpg)
+    [doc](/uploads/ccc333/doc.pdf)
+    """
+    attachments4 = export_agent._extract_attachments(content4)
+    assert len(attachments4) == 3
+    assert "/uploads/aaa111/img1.png" in attachments4
+    assert "/uploads/bbb222/img2.jpg" in attachments4
+    assert "/uploads/ccc333/doc.pdf" in attachments4
+    
+    # Test empty content
+    attachments5 = export_agent._extract_attachments("")
+    assert len(attachments5) == 0
+    
+    # Test None content
+    attachments6 = export_agent._extract_attachments(None)
+    assert len(attachments6) == 0
+
+
+@pytest.mark.asyncio
+async def test_download_attachment(export_agent, mock_gitlab_client, tmp_path):
+    """Test attachment download"""
+    export_agent.gitlab_client = mock_gitlab_client
+    mock_gitlab_client.base_url = "https://gitlab.com"
+    
+    output_dir = tmp_path / "attachments"
+    output_dir.mkdir(parents=True)
+    
+    # Mock download_file to create an actual file
+    async def mock_download(url, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(b"fake image data")
+        return True
+    
+    mock_gitlab_client.download_file = AsyncMock(side_effect=mock_download)
+    
+    # Test downloading an attachment
+    result = await export_agent._download_attachment(
+        "test/project",
+        "/uploads/abc123def/screenshot.png",
+        output_dir
+    )
+    
+    assert result is not None
+    assert result.name == "abc123def_screenshot.png"
+    assert mock_gitlab_client.download_file.called
+    
+    # Verify the URL was constructed correctly
+    call_args = mock_gitlab_client.download_file.call_args
+    assert "https://gitlab.com/test/project/uploads/abc123def/screenshot.png" in str(call_args[0][0])
+
+
+@pytest.mark.asyncio
+async def test_download_attachment_failure(export_agent, mock_gitlab_client, tmp_path):
+    """Test attachment download failure handling"""
+    export_agent.gitlab_client = mock_gitlab_client
+    mock_gitlab_client.base_url = "https://gitlab.com"
+    mock_gitlab_client.download_file = AsyncMock(return_value=False)
+    
+    output_dir = tmp_path / "attachments"
+    output_dir.mkdir(parents=True)
+    
+    # Test downloading an attachment that fails
+    result = await export_agent._download_attachment(
+        "test/project",
+        "/uploads/abc123/file.png",
+        output_dir
+    )
+    
+    assert result is None  # Should return None on failure
+
+
+@pytest.mark.asyncio
+async def test_export_issues_with_attachments(export_agent, mock_gitlab_client, tmp_path):
+    """Test issue export with attachment download"""
+    export_agent.gitlab_client = mock_gitlab_client
+    mock_gitlab_client.base_url = "https://gitlab.com"
+    
+    # Mock download_file to create actual files
+    async def mock_download(url, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(b"fake file data")
+        return True
+    
+    mock_gitlab_client.download_file = AsyncMock(side_effect=mock_download)
+    
+    output_dir = tmp_path / "export"
+    output_dir.mkdir(parents=True)
+    export_agent._create_directory_structure(output_dir)
+    
+    # Mock issues with attachments
+    async def mock_list_issues(project_id):
+        issues = [
+            {"iid": 1, "title": "Issue with screenshot", "state": "opened"}
+        ]
+        for issue in issues:
+            yield issue
+    
+    mock_gitlab_client.list_issues = mock_list_issues
+    mock_gitlab_client.get_issue.return_value = {
+        "iid": 1,
+        "title": "Issue with screenshot",
+        "description": "Here's a bug: ![screenshot](/uploads/abc123/bug.png)",
+        "state": "opened"
+    }
+    mock_gitlab_client.list_issue_notes.return_value = [
+        {"body": "Also see [log file](/uploads/def456/error.log)", "author": {"username": "user1"}}
+    ]
+    
+    project = {
+        "id": 123,
+        "path_with_namespace": "test/project"
+    }
+    
+    result = await export_agent._export_issues(123, project, output_dir)
+    
+    assert result["success"] is True
+    assert result["count"] == 1
+    
+    # Check that issues.json was created
+    issues_file = output_dir / "issues" / "issues.json"
+    assert issues_file.exists()
+    
+    # Check that attachment metadata was created
+    metadata_file = output_dir / "issues" / "attachment_metadata.json"
+    assert metadata_file.exists()
+    
+    # Check attachment metadata content
+    with open(metadata_file) as f:
+        metadata = json.load(f)
+        assert "/uploads/abc123/bug.png" in metadata
+        assert "/uploads/def456/error.log" in metadata
+    
+    # Verify download_file was called
+    assert mock_gitlab_client.download_file.call_count >= 2

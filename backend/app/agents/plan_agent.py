@@ -59,6 +59,7 @@ class ActionType:
     
     # Preservation
     ARTIFACT_COMMIT = "artifact_commit"
+    ATTACHMENTS_COMMIT = "attachments_commit"
 
 
 class Phase:
