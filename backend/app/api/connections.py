@@ -2,13 +2,18 @@
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import httpx
+import logging
 
 from app.models import User
 from app.services import ConnectionService
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access
 from app.clients.gitlab_client import GitLabClient
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
 import httpx
 
 router = APIRouter()
@@ -29,6 +34,29 @@ class ConnectionResponse(BaseModel):
     created_at: str
 
 
+class GitLabTestRequest(BaseModel):
+    token: str
+    base_url: Optional[str] = "https://gitlab.com"
+
+
+class GitHubTestRequest(BaseModel):
+    token: str
+
+
+class GitLabTestResponse(BaseModel):
+    valid: bool
+    user: Optional[str] = None
+    scopes: List[str] = []
+    expires_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class GitHubTestResponse(BaseModel):
+    valid: bool
+    user: Optional[str] = None
+    type: Optional[str] = None
+    rate_limit: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
 class ConnectionTestRequest(BaseModel):
     base_url: str
     token: str
@@ -148,6 +176,165 @@ async def delete_connection(
     
     return None
 
+
+@router.post("/{project_id}/connections/gitlab/test", response_model=GitLabTestResponse)
+async def test_gitlab_connection(
+    project_id: str,
+    request: GitLabTestRequest,
+    current_user: User = Depends(require_operator)
+):
+    """
+    Test GitLab connection by validating the token against GitLab API.
+    
+    Args:
+        project_id: Project ID (used for access control)
+        request: GitLab test request containing token and base_url
+        current_user: Current authenticated user
+        
+    Returns:
+        GitLabTestResponse with validation results
+    """
+    await check_project_access(project_id, current_user)
+    
+    try:
+        # Initialize GitLab client with provided credentials
+        base_url = request.base_url or "https://gitlab.com"
+        
+        async with GitLabClient(base_url, request.token, timeout=10) as client:
+            # Test connection by getting current user
+            user_info = await client.get_current_user()
+            
+            # Extract scopes from token (if available in headers)
+            # Note: GitLab doesn't provide scopes in the user response,
+            # but we can infer successful API access
+            scopes = []
+            
+            return GitLabTestResponse(
+                valid=True,
+                user=user_info.get("username"),
+                scopes=scopes,
+                expires_at=None  # GitLab tokens don't have expiration in API response
+            )
+            
+    except httpx.HTTPStatusError as e:
+        # Handle HTTP errors (e.g., 401 Unauthorized, 403 Forbidden)
+        error_detail = f"HTTP {e.response.status_code}"
+        if e.response.status_code == 401:
+            error_detail = "Invalid token or insufficient permissions"
+        elif e.response.status_code == 403:
+            error_detail = "Token does not have required scopes"
+        
+        logger.info(f"GitLab connection test failed for project {project_id}: {error_detail}")
+        return GitLabTestResponse(
+            valid=False,
+            error=error_detail
+        )
+        
+    except httpx.RequestError as e:
+        # Handle network errors
+        logger.warning(f"GitLab connection test network error for project {project_id}: {str(e)}")
+        return GitLabTestResponse(
+            valid=False,
+            error=f"Connection failed: {str(e)}"
+        )
+        
+    except Exception as e:
+        # Handle other errors - log full error but return generic message
+        logger.error(f"Unexpected error testing GitLab connection for project {project_id}: {str(e)}")
+        return GitLabTestResponse(
+            valid=False,
+            error="An unexpected error occurred while testing the connection"
+        )
+
+
+@router.post("/{project_id}/connections/github/test", response_model=GitHubTestResponse)
+async def test_github_connection(
+    project_id: str,
+    request: GitHubTestRequest,
+    current_user: User = Depends(require_operator)
+):
+    """
+    Test GitHub connection by validating the token against GitHub API.
+    
+    Args:
+        project_id: Project ID (used for access control)
+        request: GitHub test request containing token
+        current_user: Current authenticated user
+        
+    Returns:
+        GitHubTestResponse with validation results
+    """
+    await check_project_access(project_id, current_user)
+    
+    try:
+        # Test connection using GitHub API /user endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {request.token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28"
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                try:
+                    user_data = response.json()
+                except Exception as json_error:
+                    logger.error(f"Failed to parse GitHub API response for project {project_id}: {str(json_error)}")
+                    return GitHubTestResponse(
+                        valid=False,
+                        error="Failed to parse API response"
+                    )
+                
+                # Extract rate limit information from headers
+                rate_limit_info = None
+                if "X-RateLimit-Remaining" in response.headers:
+                    rate_limit_info = {
+                        "remaining": int(response.headers.get("X-RateLimit-Remaining", 0)),
+                        "reset_at": response.headers.get("X-RateLimit-Reset", None)
+                    }
+                
+                # Determine if user or organization
+                account_type = "organization" if user_data.get("type") == "Organization" else "user"
+                
+                return GitHubTestResponse(
+                    valid=True,
+                    user=user_data.get("login"),
+                    type=account_type,
+                    rate_limit=rate_limit_info
+                )
+            else:
+                # Handle non-200 responses
+                error_detail = f"HTTP {response.status_code}"
+                if response.status_code == 401:
+                    error_detail = "Invalid token or token has expired"
+                elif response.status_code == 403:
+                    error_detail = "Token does not have required permissions"
+                
+                logger.info(f"GitHub connection test failed for project {project_id}: {error_detail}")
+                return GitHubTestResponse(
+                    valid=False,
+                    error=error_detail
+                )
+                
+    except httpx.RequestError as e:
+        # Handle network errors
+        logger.warning(f"GitHub connection test network error for project {project_id}: {str(e)}")
+        return GitHubTestResponse(
+            valid=False,
+            error=f"Connection failed: {str(e)}"
+        )
+        
+    except Exception as e:
+        # Handle other errors - log full error but return generic message
+        logger.error(f"Unexpected error testing GitHub connection for project {project_id}: {str(e)}")
+        return GitHubTestResponse(
+            valid=False,
+            error="An unexpected error occurred while testing the connection"
+        )
 
 @test_router.post("/connections/test/gitlab", response_model=ConnectionTestResponse)
 async def test_gitlab_connection(
