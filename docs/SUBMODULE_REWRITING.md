@@ -140,8 +140,8 @@ backend/tests/transformers/test_submodule_transformer.py
 
 Run tests with:
 ```bash
-cd /home/runner/work/gl2gh/gl2gh
-PYTHONPATH=/home/runner/work/gl2gh/gl2gh/backend:$PYTHONPATH \
+cd PROJECT_ROOT
+PYTHONPATH=PROJECT_ROOT/backend:$PYTHONPATH \
 python -m pytest backend/tests/transformers/test_submodule_transformer.py -v
 ```
 

@@ -214,6 +214,8 @@ class TransformAgent(BaseAgent):
                     "issues_transformed": len(issues_result.get("issues", [])) if issues_result else 0,
                     "mrs_transformed": len(mrs_result.get("merge_requests", [])) if mrs_result else 0,
                     "submodules_rewritten": submodules_result.get("rewrite_count", 0) if submodules_result else 0,
+                    "submodules": submodules_result.get("submodules", []) if submodules_result else [],
+                    "gitmodules_content": submodules_result.get("gitmodules_content", "") if submodules_result else "",
                     "conversion_gaps": len(gap_analysis_result.get("gaps", [])) if gap_analysis_result else 0
                 },
                 artifacts=artifacts,
@@ -531,7 +533,23 @@ class TransformAgent(BaseAgent):
         github_repo: str,
         output_dir: Path
     ) -> Optional[Dict[str, Any]]:
-        """Transform submodule URLs from GitLab to GitHub"""
+        """
+        Transform submodule URLs from GitLab to GitHub.
+        
+        Note: Currently only creates mappings for the single gitlab_project/github_repo
+        pair being migrated. For multi-repository migrations where submodules reference
+        other migrated repositories, url_mappings should be passed as an input parameter
+        containing all project mappings.
+        
+        Args:
+            submodules_content: Content of .gitmodules file
+            gitlab_project: GitLab project path (e.g., "group/project")
+            github_repo: GitHub repo path (e.g., "owner/repo")
+            output_dir: Directory for output artifacts
+            
+        Returns:
+            Dict with transformation results or None if no submodules
+        """
         if not submodules_content:
             self.log_event("INFO", "No submodules content found, skipping submodule transformation")
             return None
@@ -539,8 +557,7 @@ class TransformAgent(BaseAgent):
         self.log_event("INFO", "Transforming submodule URLs")
         
         # Build URL mappings based on gitlab_project and github_repo
-        # This is a simple implementation - in a real scenario, you'd want to
-        # have a more comprehensive mapping of all repos being migrated
+        # TODO: For multi-repository migrations, accept url_mappings as parameter
         url_mappings = {}
         
         if gitlab_project and github_repo:

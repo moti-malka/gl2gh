@@ -229,7 +229,7 @@ class SubmoduleTransformer(BaseTransformer):
             Rewritten URL in the same format as original
         """
         # Detect URL format
-        is_ssh = original_url.startswith('git@') or ':' in original_url and '://' not in original_url
+        is_ssh = original_url.startswith('git@') or ((':' in original_url) and ('://' not in original_url))
         is_https = original_url.startswith('http://') or original_url.startswith('https://')
         has_git_extension = original_url.endswith('.git')
         
