@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, AsyncIterator, Union
 from pathlib import Path
 import httpx
 from app.utils.logging import get_logger
+from app.utils.errors import create_gitlab_error, MigrationError
 
 logger = get_logger(__name__)
 
@@ -183,6 +184,13 @@ class GitLabClient:
                     )
                     await asyncio.sleep(wait_time)
                     continue
+                
+                # Create user-friendly error
+                migration_error = create_gitlab_error(e)
+                self.logger.error(
+                    f"GitLab API error: {migration_error.message}",
+                    extra={"error_code": migration_error.code, "technical": migration_error.technical}
+                )
                 raise
                 
             except httpx.RequestError as e:
@@ -192,9 +200,23 @@ class GitLabClient:
                     self.logger.warning(f"Request error: {e}, retry {retry_count}/{max_retries}")
                     await asyncio.sleep(wait_time)
                     continue
+                
+                # Create user-friendly error
+                migration_error = create_gitlab_error(e)
+                self.logger.error(
+                    f"GitLab connection error: {migration_error.message}",
+                    extra={"error_code": migration_error.code, "technical": migration_error.technical}
+                )
                 raise
         
-        raise Exception(f"Max retries exceeded for {method} {endpoint}")
+        # Max retries exceeded
+        error = Exception(f"Max retries exceeded for {method} {endpoint}")
+        migration_error = create_gitlab_error(error)
+        self.logger.error(
+            f"Max retries exceeded: {migration_error.message}",
+            extra={"error_code": migration_error.code}
+        )
+        raise error
     
     async def paginated_request(
         self,

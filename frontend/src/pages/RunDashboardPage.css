@@ -157,12 +157,18 @@
 }
 
 .event-item {
-  display: grid;
-  grid-template-columns: 100px 150px 1fr;
-  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #e2e8f0;
   font-size: 0.875rem;
+}
+
+.event-item > div:first-child {
+  display: grid;
+  grid-template-columns: 100px 150px 1fr;
+  gap: 1rem;
 }
 
 .event-item:last-child {
@@ -206,6 +212,158 @@
 .event-message {
   color: #2d3748;
   word-break: break-word;
+}
+
+.error-details {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.error-details > div {
+  margin-bottom: 0.5rem;
+}
+
+.error-details > div:last-child {
+  margin-bottom: 0;
+}
+
+.error-code {
+  color: #742a2a;
+  font-family: 'Courier New', monospace;
+}
+
+.error-suggestion {
+  color: #2d3748;
+  background: #fffaf0;
+  padding: 0.75rem;
+  border-left: 3px solid #ed8936;
+  border-radius: 4px;
+  margin-top: 0.5rem;
+}
+
+.error-retry {
+  color: #2d3748;
+  background: #fefcbf;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.error-technical {
+  margin-top: 0.5rem;
+}
+
+.error-technical summary {
+  cursor: pointer;
+  color: #4a5568;
+  font-weight: 500;
+}
+
+.error-technical summary:hover {
+  color: #2d3748;
+}
+
+.error-technical pre {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: #2d3748;
+  color: #e2e8f0;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.error-summary-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+  border-left: 4px solid #e53e3e;
+}
+
+.error-summary-section h2 {
+  margin: 0 0 1.5rem;
+  color: #e53e3e;
+  font-size: 1.25rem;
+}
+
+.error-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.error-category {
+  padding: 0.5rem;
+  background: #fed7d7;
+  border-radius: 4px;
+  color: #742a2a;
+  font-size: 0.875rem;
+}
+
+.error-message {
+  color: #2d3748;
+  font-size: 1rem;
+}
+
+.error-suggestion-box {
+  background: #fffaf0;
+  padding: 1.5rem;
+  border-left: 4px solid #ed8936;
+  border-radius: 6px;
+}
+
+.error-suggestion-box h3 {
+  margin: 0 0 0.75rem;
+  color: #744210;
+  font-size: 1rem;
+}
+
+.error-suggestion-box p {
+  margin: 0;
+  color: #2d3748;
+  line-height: 1.6;
+}
+
+.error-retry-info {
+  background: #fefcbf;
+  padding: 1rem;
+  border-radius: 6px;
+  color: #744210;
+}
+
+.error-technical-details {
+  margin-top: 1rem;
+}
+
+.error-technical-details summary {
+  cursor: pointer;
+  color: #4a5568;
+  font-weight: 500;
+  padding: 0.5rem;
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.error-technical-details summary:hover {
+  background: #e2e8f0;
+  color: #2d3748;
+}
+
+.error-technical-details pre {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: #2d3748;
+  color: #e2e8f0;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
 .artifacts-section {
