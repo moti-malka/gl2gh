@@ -22,6 +22,8 @@ class ActionResult:
     retry_count: int = 0
     duration_seconds: float = 0.0
     timestamp: Optional[datetime] = None
+    rollback_data: Optional[Dict[str, Any]] = None
+    reversible: bool = True
     
     def __post_init__(self):
         if self.timestamp is None:
@@ -37,7 +39,9 @@ class ActionResult:
             "error": self.error,
             "retry_count": self.retry_count,
             "duration_seconds": self.duration_seconds,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "rollback_data": self.rollback_data,
+            "reversible": self.reversible
         }
 
 
@@ -75,6 +79,29 @@ class BaseAction(ABC):
             ActionResult with success status and outputs
         """
         pass
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """
+        Rollback/undo the action.
+        
+        Args:
+            rollback_data: Data needed to undo the action (from ActionResult.rollback_data)
+            
+        Returns:
+            True if rollback successful, False otherwise
+        """
+        self.logger.warning(f"Rollback not implemented for action type: {self.action_type}")
+        return False
+    
+    def is_reversible(self) -> bool:
+        """
+        Check if this action type is reversible.
+        
+        Returns:
+            True if action can be rolled back, False otherwise
+        """
+        # By default, actions are reversible unless they override this
+        return True
     
     def check_idempotency(self) -> Optional[ActionResult]:
         """

@@ -23,7 +23,8 @@ class CreateLabelAction(BaseAction):
                     success=True,
                     action_id=self.action_id,
                     action_type=self.action_type,
-                    outputs={"label_name": name, "label_id": label.id}
+                    outputs={"label_name": name, "label_id": label.id},
+                    rollback_data={"target_repo": target_repo, "label_name": name}
                 )
             except GithubException as e:
                 if e.status == 422:
@@ -44,6 +45,32 @@ class CreateLabelAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback label creation by deleting it"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            label_name = rollback_data.get("label_name")
+            
+            if not target_repo or not label_name:
+                self.logger.error("Missing target_repo or label_name in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting label {label_name} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            label = repo.get_label(label_name)
+            label.delete()
+            self.logger.info(f"Successfully deleted label {label_name}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Label {label_name} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback label creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback label creation: {str(e)}")
+            return False
 
 
 class CreateMilestoneAction(BaseAction):
@@ -82,6 +109,10 @@ class CreateMilestoneAction(BaseAction):
                     "milestone_title": title,
                     "milestone_number": milestone.number,
                     "gitlab_id": gitlab_id
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "milestone_number": milestone.number
                 }
             )
         except GithubException as e:
@@ -109,6 +140,32 @@ class CreateMilestoneAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback milestone creation by deleting it"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            milestone_number = rollback_data.get("milestone_number")
+            
+            if not target_repo or not milestone_number:
+                self.logger.error("Missing target_repo or milestone_number in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting milestone #{milestone_number} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            milestone = repo.get_milestone(milestone_number)
+            milestone.delete()
+            self.logger.info(f"Successfully deleted milestone #{milestone_number}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Milestone #{milestone_number} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback milestone creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback milestone creation: {str(e)}")
+            return False
 
 
 class CreateIssueAction(BaseAction):
@@ -153,6 +210,10 @@ class CreateIssueAction(BaseAction):
                     "issue_number": issue.number,
                     "issue_url": issue.html_url,
                     "gitlab_issue_id": gitlab_issue_id
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "issue_number": issue.number
                 }
             )
         except Exception as e:
@@ -163,6 +224,34 @@ class CreateIssueAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback issue creation by closing it (issues cannot be deleted via API)"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            issue_number = rollback_data.get("issue_number")
+            
+            if not target_repo or not issue_number:
+                self.logger.error("Missing target_repo or issue_number in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Closing issue #{issue_number} in {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            issue = repo.get_issue(issue_number)
+            issue.edit(state="closed")
+            # Add a comment explaining the rollback
+            issue.create_comment("🔄 This issue was closed as part of a migration rollback.")
+            self.logger.info(f"Successfully closed issue #{issue_number}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Issue #{issue_number} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback issue creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback issue creation: {str(e)}")
+            return False
 
 
 class AddIssueCommentAction(BaseAction):
@@ -199,7 +288,8 @@ class AddIssueCommentAction(BaseAction):
                 outputs={
                     "comment_id": comment.id,
                     "issue_number": issue_number
-                }
+                },
+                reversible=False  # Comments cannot be deleted via API
             )
         except Exception as e:
             return ActionResult(
@@ -209,3 +299,7 @@ class AddIssueCommentAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    def is_reversible(self) -> bool:
+        """Comments cannot be deleted via GitHub API"""
+        return False
