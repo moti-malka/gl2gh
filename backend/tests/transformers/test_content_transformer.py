@@ -261,3 +261,78 @@ class TestContentTransformer:
         
         assert "https://gitlab.com/project/issues/123" in body
         assert "Original URL:" in body
+    
+    def test_attachment_link_rewriting(self):
+        """Test attachment link rewriting in markdown"""
+        # Set up attachment mappings
+        self.transformer.set_attachment_mappings({
+            "/uploads/abc123/screenshot.png": "https://github.com/myorg/myrepo/blob/main/.github/attachments/abc123_screenshot.png",
+            "/uploads/def456/log.txt": "https://github.com/myorg/myrepo/blob/main/.github/attachments/def456_log.txt"
+        })
+        
+        issue = {
+            "title": "Bug with screenshot",
+            "description": "Here's a screenshot:\n![bug](/uploads/abc123/screenshot.png)\n\nAnd a log file: [error.log](/uploads/def456/log.txt)",
+            "author": {"username": "johndoe"},
+            "state": "opened"
+        }
+        
+        result = self.transformer.transform({
+            "content_type": "issue",
+            "content": issue,
+            "gitlab_project": "myorg/myproject",
+            "github_repo": "myorg/myrepo"
+        })
+        
+        assert result.success
+        body = result.data["body"]
+        
+        # Check that old paths are replaced with new URLs
+        assert "/uploads/abc123/screenshot.png" not in body
+        assert "/uploads/def456/log.txt" not in body
+        assert "https://github.com/myorg/myrepo/blob/main/.github/attachments/abc123_screenshot.png" in body
+        assert "https://github.com/myorg/myrepo/blob/main/.github/attachments/def456_log.txt" in body
+    
+    def test_attachment_link_rewriting_in_comments(self):
+        """Test attachment link rewriting in comment transformation"""
+        self.transformer.set_attachment_mappings({
+            "/uploads/xyz789/diagram.png": "https://github.com/myorg/myrepo/blob/main/.github/attachments/xyz789_diagram.png"
+        })
+        
+        comment = {
+            "id": 999,
+            "body": "See this diagram: ![diagram](/uploads/xyz789/diagram.png)",
+            "author": {"username": "janedoe"},
+            "created_at": "2024-01-15T10:00:00Z",
+            "updated_at": "2024-01-15T10:00:00Z"
+        }
+        
+        result = self.transformer.transform_comment(
+            comment,
+            "myorg/myproject",
+            "myorg/myrepo"
+        )
+        
+        # Check that old path is replaced with new URL
+        assert "/uploads/xyz789/diagram.png" not in result["body"]
+        assert "https://github.com/myorg/myrepo/blob/main/.github/attachments/xyz789_diagram.png" in result["body"]
+    
+    def test_attachment_link_rewriting_no_mappings(self):
+        """Test that content is unchanged when no attachment mappings exist"""
+        issue = {
+            "title": "Issue with attachment",
+            "description": "Screenshot: ![bug](/uploads/abc123/screenshot.png)",
+            "author": {"username": "johndoe"},
+            "state": "opened"
+        }
+        
+        result = self.transformer.transform({
+            "content_type": "issue",
+            "content": issue,
+            "gitlab_project": "",
+            "github_repo": ""
+        })
+        
+        assert result.success
+        # Original path should remain since no mappings were set
+        assert "/uploads/abc123/screenshot.png" in result.data["body"]
