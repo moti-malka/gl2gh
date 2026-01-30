@@ -34,7 +34,7 @@ from .settings import (
     AddCollaboratorAction,
     CreateWebhookAction
 )
-from .preservation import CommitPreservationArtifactsAction
+from .preservation import CommitPreservationArtifactsAction, CommitAttachmentsAction
 
 __all__ = [
     "BaseAction",
@@ -61,6 +61,7 @@ __all__ = [
     "AddCollaboratorAction",
     "CreateWebhookAction",
     "CommitPreservationArtifactsAction",
+    "CommitAttachmentsAction",
     "ACTION_REGISTRY",
 ]
 
@@ -88,4 +89,5 @@ ACTION_REGISTRY = {
     "collaborator_add": AddCollaboratorAction,
     "webhook_create": CreateWebhookAction,
     "artifact_commit": CommitPreservationArtifactsAction,
+    "attachments_commit": CommitAttachmentsAction,
 }
