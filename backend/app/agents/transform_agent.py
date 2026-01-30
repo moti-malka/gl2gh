@@ -10,7 +10,8 @@ from app.utils.transformers import (
     CICDTransformer,
     UserMapper,
     ContentTransformer,
-    GapAnalyzer
+    GapAnalyzer,
+    SubmoduleTransformer
 )
 
 logger = get_logger(__name__)
@@ -59,6 +60,7 @@ class TransformAgent(BaseAgent):
         self.user_mapper = UserMapper()
         self.content_transformer = ContentTransformer()
         self.gap_analyzer = GapAnalyzer()
+        self.submodule_transformer = SubmoduleTransformer()
     
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """Validate transform inputs"""
@@ -171,7 +173,22 @@ class TransformAgent(BaseAgent):
             if milestones_result and milestones_result.get("artifacts"):
                 artifacts.extend(milestones_result["artifacts"])
             
-            # 6. Perform gap analysis
+            # 6. Transform submodules
+            submodules_result = await self._transform_submodules(
+                export_data.get("submodules_content"),
+                gitlab_project,
+                github_repo,
+                output_dir
+            )
+            if submodules_result and submodules_result.get("artifacts"):
+                artifacts.extend(submodules_result["artifacts"])
+            if submodules_result and submodules_result.get("warnings"):
+                all_warnings.extend(submodules_result["warnings"])
+            if submodules_result and not submodules_result.get("success", True):
+                if submodules_result.get("errors"):
+                    all_errors.extend(submodules_result["errors"])
+            
+            # 7. Perform gap analysis
             gap_analysis_result = await self._analyze_gaps(
                 workflows_result,
                 user_mappings_result,
@@ -196,6 +213,7 @@ class TransformAgent(BaseAgent):
                     "users_mapped": user_mappings_result.get("stats", {}).get("mapped", 0) if user_mappings_result else 0,
                     "issues_transformed": len(issues_result.get("issues", [])) if issues_result else 0,
                     "mrs_transformed": len(mrs_result.get("merge_requests", [])) if mrs_result else 0,
+                    "submodules_rewritten": submodules_result.get("rewrite_count", 0) if submodules_result else 0,
                     "conversion_gaps": len(gap_analysis_result.get("gaps", [])) if gap_analysis_result else 0
                 },
                 artifacts=artifacts,
@@ -504,6 +522,76 @@ class TransformAgent(BaseAgent):
             "gaps": result.data.get("gaps", []),
             "summary": result.data.get("summary", {}),
             "artifacts": [str(gaps_file), str(report_file)]
+        }
+    
+    async def _transform_submodules(
+        self,
+        submodules_content: Optional[str],
+        gitlab_project: str,
+        github_repo: str,
+        output_dir: Path
+    ) -> Optional[Dict[str, Any]]:
+        """Transform submodule URLs from GitLab to GitHub"""
+        if not submodules_content:
+            self.log_event("INFO", "No submodules content found, skipping submodule transformation")
+            return None
+        
+        self.log_event("INFO", "Transforming submodule URLs")
+        
+        # Build URL mappings based on gitlab_project and github_repo
+        # This is a simple implementation - in a real scenario, you'd want to
+        # have a more comprehensive mapping of all repos being migrated
+        url_mappings = {}
+        
+        if gitlab_project and github_repo:
+            # Extract org/project from paths
+            # gitlab_project format: "group/project"
+            # github_repo format: "owner/repo"
+            
+            # Create various URL format mappings
+            gitlab_https = f"https://gitlab.com/{gitlab_project}"
+            gitlab_ssh = f"git@gitlab.com:{gitlab_project}"
+            github_https = f"https://github.com/{github_repo}"
+            
+            url_mappings[gitlab_https] = github_https
+            url_mappings[gitlab_ssh] = github_https
+            url_mappings[f"gitlab.com/{gitlab_project}"] = f"github.com/{github_repo}"
+        
+        result = self.submodule_transformer.transform({
+            "gitmodules_content": submodules_content,
+            "url_mappings": url_mappings
+        })
+        
+        if not result.success:
+            self.log_event("ERROR", "Submodule transformation failed")
+            return {
+                "success": False,
+                "errors": result.errors,
+                "warnings": result.warnings,
+                "artifacts": []
+            }
+        
+        # Save transformed submodules
+        submodules_file = output_dir / "submodules_transformed.json"
+        with open(submodules_file, "w") as f:
+            json.dump(result.data, f, indent=2)
+        
+        # Save updated .gitmodules content
+        gitmodules_file = output_dir / "gitmodules_updated.txt"
+        gitmodules_file.write_text(result.data.get("gitmodules_content", ""))
+        
+        self.log_event("INFO", f"Transformed submodules: {submodules_file}")
+        
+        return {
+            "success": True,
+            "submodules": result.data.get("submodules", []),
+            "rewrite_count": result.data.get("rewrite_count", 0),
+            "external_count": result.data.get("external_count", 0),
+            "total_count": result.data.get("total_count", 0),
+            "gitmodules_content": result.data.get("gitmodules_content", ""),
+            "artifacts": [str(submodules_file), str(gitmodules_file)],
+            "warnings": result.warnings,
+            "errors": result.errors
         }
     
     def generate_artifacts(self, data: Dict[str, Any]) -> Dict[str, str]:
