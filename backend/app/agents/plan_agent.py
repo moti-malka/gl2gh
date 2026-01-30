@@ -927,46 +927,46 @@ class PlanAgent(BaseAgent):
                     self.log_event("WARNING", f"Failed to load packages.json: {e}")
             
             for package in packages:
-            package_id = package.get("id")
-            package_name = package.get("name", "unknown")
-            package_type = package.get("package_type", "unknown")
-            package_version = package.get("version", "unknown")
-            migrable = package.get("migrable", False)
-            files = package.get("files", [])
+                package_id = package.get("id")
+                package_name = package.get("name", "unknown")
+                package_type = package.get("package_type", "unknown")
+                package_version = package.get("version", "unknown")
+                migrable = package.get("migrable", False)
+                files = package.get("files", [])
+                
+                # Generate action description based on migrability
+                if not migrable:
+                    description = f"Document non-migrable package: {package_type}/{package_name}@{package_version}"
+                elif not files:
+                    description = f"Document package without files: {package_type}/{package_name}@{package_version}"
+                else:
+                    description = f"Publish {package_type} package: {package_name}@{package_version}"
+                
+                generator.add_action(
+                    action_type=ActionType.PACKAGE_PUBLISH,
+                    component="packages",
+                    phase=Phase.PACKAGE_IMPORT,
+                    description=description,
+                    parameters={
+                        "target_repo": generator.github_target,
+                        "package_type": package_type,
+                        "package_name": package_name,
+                        "version": package_version,
+                        "files": files,
+                        "migrable": migrable,
+                        "package_id": package_id
+                    },
+                    dependencies=[repo_create_id],
+                    dry_run_safe=False,
+                    reversible=False,
+                    estimated_duration_seconds=300 if files else 5,
+                    skip_if=None  # Don't skip, we want to report status
+                )
             
-            # Generate action description based on migrability
-            if not migrable:
-                description = f"Document non-migrable package: {package_type}/{package_name}@{package_version}"
-            elif not files:
-                description = f"Document package without files: {package_type}/{package_name}@{package_version}"
-            else:
-                description = f"Publish {package_type} package: {package_name}@{package_version}"
-            
-            generator.add_action(
-                action_type=ActionType.PACKAGE_PUBLISH,
-                component="packages",
-                phase=Phase.PACKAGE_IMPORT,
-                description=description,
-                parameters={
-                    "target_repo": generator.github_target,
-                    "package_type": package_type,
-                    "package_name": package_name,
-                    "version": package_version,
-                    "files": files,
-                    "migrable": migrable,
-                    "package_id": package_id
-                },
-                dependencies=[repo_create_id],
-                dry_run_safe=False,
-                reversible=False,
-                estimated_duration_seconds=300 if files else 5,
-                skip_if=None  # Don't skip, we want to report status
-            )
-        
-        # Add a summary log if there are non-migrable packages
-        non_migrable_packages = [p for p in packages if not p.get("migrable", False)]
-        if non_migrable_packages:
-            self.log_event("INFO", f"Found {len(non_migrable_packages)} non-migrable packages that require manual migration")
+            # Add a summary log if there are non-migrable packages
+            non_migrable_packages = [p for p in packages if not p.get("migrable", False)]
+            if non_migrable_packages:
+                self.log_event("INFO", f"Found {len(non_migrable_packages)} non-migrable packages that require manual migration")
         
         
         # Phase 9: Governance - Branch protection
