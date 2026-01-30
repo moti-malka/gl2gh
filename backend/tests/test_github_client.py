@@ -114,17 +114,12 @@ class TestGitHubClient:
         error_response = MagicMock(spec=httpx.Response)
         error_response.status_code = 500
         
-        success_response = MagicMock(spec=httpx.Response)
-        success_response.status_code = 200
-        success_response.json.return_value = {"success": True}
-        
-        def raise_on_first():
-            raise httpx.HTTPStatusError("Server error", request=MagicMock(), response=error_response)
+        error = httpx.HTTPStatusError("Server error", request=MagicMock(), response=error_response)
         
         with patch.object(
             github_client.client,
             'request',
-            new=AsyncMock(side_effect=[raise_on_first(), success_response])
+            new=AsyncMock(side_effect=error)
         ):
             with pytest.raises(httpx.HTTPStatusError):
                 await github_client._request('GET', '/user', max_retries=0)
@@ -429,10 +424,9 @@ class TestGitHubClient:
         error_response = MagicMock(spec=httpx.Response)
         error_response.status_code = 404
         
-        def raise_404():
-            raise httpx.HTTPStatusError("Not found", request=MagicMock(), response=error_response)
+        error = httpx.HTTPStatusError("Not found", request=MagicMock(), response=error_response)
         
-        with patch.object(github_client, '_request', new=AsyncMock(side_effect=raise_404)):
+        with patch.object(github_client, '_request', new=AsyncMock(side_effect=error)):
             protection = await github_client.get_branch_protection("owner/repo", "main")
             assert protection is None
     
