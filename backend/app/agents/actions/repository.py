@@ -12,6 +12,62 @@ import httpx
 class CreateRepositoryAction(BaseAction):
     """Create GitHub repository"""
     
+    async def simulate(self) -> ActionResult:
+        """Simulate repository creation"""
+        try:
+            org_or_user = self.parameters.get("org") or self.parameters.get("owner")
+            repo_name = self.parameters["name"]
+            repo_full_name = f"{org_or_user}/{repo_name}"
+            
+            # Check if repository already exists
+            try:
+                repo = self.github_client.get_repo(repo_full_name)
+                # Repository exists
+                return ActionResult(
+                    success=True,
+                    action_id=self.action_id,
+                    action_type=self.action_type,
+                    outputs={"repo_full_name": repo_full_name, "exists": True},
+                    simulated=True,
+                    simulation_outcome="would_skip",
+                    simulation_message=f"Repository '{repo_full_name}' already exists, would skip creation"
+                )
+            except GithubException as e:
+                if e.status == 404:
+                    # Repository doesn't exist, would be created
+                    return ActionResult(
+                        success=True,
+                        action_id=self.action_id,
+                        action_type=self.action_type,
+                        outputs={"repo_full_name": repo_full_name},
+                        simulated=True,
+                        simulation_outcome="would_create",
+                        simulation_message=f"Would create repository '{repo_full_name}'"
+                    )
+                else:
+                    # Some other error
+                    return ActionResult(
+                        success=False,
+                        action_id=self.action_id,
+                        action_type=self.action_type,
+                        outputs={},
+                        error=f"Would fail to create repository: {str(e)}",
+                        simulated=True,
+                        simulation_outcome="would_fail",
+                        simulation_message=f"Would fail: {str(e)}"
+                    )
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=str(e),
+                simulated=True,
+                simulation_outcome="would_fail",
+                simulation_message=f"Would fail: {str(e)}"
+            )
+    
     async def execute(self) -> ActionResult:
         try:
             org_or_user = self.parameters.get("org") or self.parameters.get("owner")

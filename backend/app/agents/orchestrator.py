@@ -23,6 +23,7 @@ class MigrationMode(str, Enum):
     EXPORT_ONLY = "EXPORT_ONLY"
     TRANSFORM_ONLY = "TRANSFORM_ONLY"
     PLAN_ONLY = "PLAN_ONLY"
+    DRY_RUN = "DRY_RUN"
     APPLY = "APPLY"
     VERIFY = "VERIFY"
     FULL = "FULL"
@@ -161,6 +162,7 @@ class AgentOrchestrator:
             MigrationMode.EXPORT_ONLY: ["discovery", "export"],
             MigrationMode.TRANSFORM_ONLY: ["discovery", "export", "transform"],
             MigrationMode.PLAN_ONLY: ["discovery", "export", "transform", "plan"],
+            MigrationMode.DRY_RUN: ["discovery", "export", "transform", "plan", "apply"],
             MigrationMode.APPLY: ["discovery", "export", "transform", "plan", "apply"],
             MigrationMode.VERIFY: ["verify"],
             MigrationMode.FULL: full_sequence
@@ -240,10 +242,13 @@ class AgentOrchestrator:
             })
         
         elif agent_name == "apply":
+            # Check if this is a dry run
+            dry_run = config.get("mode") == "DRY_RUN" or config.get("mode") == MigrationMode.DRY_RUN
             inputs.update({
                 "github_token": config.get("github_token"),
                 "plan": self.shared_context.get("plan"),
-                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/apply")
+                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/apply"),
+                "dry_run": dry_run
             })
         
         elif agent_name == "verify":
