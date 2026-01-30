@@ -20,6 +20,23 @@ export const RunDashboardPage = () => {
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const toast = useToast();
 
+  const loadDiscoveryResults = useCallback(async () => {
+    setLoadingDiscovery(true);
+    try {
+      const response = await runsAPI.getDiscoveryResults(runId);
+      setDiscoveredProjects(response.data.projects || []);
+      setShowProjectSelection(true);
+    } catch (error) {
+      console.error('Failed to load discovery results:', error);
+      // Don't show error toast if discovery hasn't completed yet
+      if (error.response?.status !== 400) {
+        toast.error('Failed to load discovery results');
+      }
+    } finally {
+      setLoadingDiscovery(false);
+    }
+  }, [runId, toast]);
+
   const loadRunData = useCallback(async () => {
     setLoading(true);
     try {
@@ -47,24 +64,7 @@ export const RunDashboardPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [runId, toast]);
-
-  const loadDiscoveryResults = async () => {
-    setLoadingDiscovery(true);
-    try {
-      const response = await runsAPI.getDiscoveryResults(runId);
-      setDiscoveredProjects(response.data.projects || []);
-      setShowProjectSelection(true);
-    } catch (error) {
-      console.error('Failed to load discovery results:', error);
-      // Don't show error toast if discovery hasn't completed yet
-      if (error.response?.status !== 400) {
-        toast.error('Failed to load discovery results');
-      }
-    } finally {
-      setLoadingDiscovery(false);
-    }
-  };
+  }, [runId, toast, loadDiscoveryResults]);
 
   const handleProjectSelectionContinue = async (selections) => {
     try {
