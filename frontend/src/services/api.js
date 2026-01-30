@@ -132,6 +132,11 @@ export const runsAPI = {
   cancel: (runId) =>
     apiClient.post(`/runs/${runId}/cancel`),
   
+  getDiscoveryResults: (runId) =>
+    apiClient.get(`/runs/${runId}/discovery-results`),
+  
+  saveProjectSelection: (runId, selections) =>
+    apiClient.post(`/runs/${runId}/selection`, { selections }),
   getCheckpoint: (runId) =>
     apiClient.get(`/runs/${runId}/checkpoint`),
   
