@@ -33,9 +33,10 @@ cryptography==42.0.4
 jsonschema==4.20.0
 PyYAML==6.0.1
 
-# WebSocket support
+# WebSocket and SSE support
 websockets>=15.0.1
 python-socketio>=5.10.0
+sse-starlette>=2.0.0
 
 # Logging
 python-json-logger==2.0.7

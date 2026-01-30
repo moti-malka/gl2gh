@@ -4,8 +4,11 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from datetime import datetime
 import json
 import logging
+import asyncio
+from sse_starlette.sse import EventSourceResponse
 
 from app.models import User
 from app.services import RunService, ArtifactService, ProjectService
@@ -13,6 +16,7 @@ from app.services.connection_service import ConnectionService
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
 from app.workers.tasks import run_migration, run_apply, run_verify
+from app.utils.sse_manager import sse_manager
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +67,8 @@ class RunResponse(BaseModel):
     mode: str
     status: str
     stage: Optional[str]
+    current_stage: Optional[str] = None
+    progress: Dict[str, Any] = {}
     started_at: Optional[str]
     finished_at: Optional[str]
     stats: Dict[str, int]
@@ -172,6 +178,8 @@ async def create_run(
             mode=created_run.mode,
             status=created_run.status,
             stage=created_run.stage,
+            current_stage=created_run.current_stage,
+            progress=created_run.progress,
             started_at=created_run.started_at.isoformat() if created_run.started_at else None,
             finished_at=created_run.finished_at.isoformat() if created_run.finished_at else None,
             stats=created_run.stats.model_dump(),
@@ -204,6 +212,8 @@ async def list_project_runs(
             mode=r.mode,
             status=r.status,
             stage=r.stage,
+            current_stage=r.current_stage,
+            progress=r.progress,
             started_at=r.started_at.isoformat() if r.started_at else None,
             finished_at=r.finished_at.isoformat() if r.finished_at else None,
             stats=r.stats.model_dump(),
@@ -227,6 +237,8 @@ async def get_run(
         mode=run.mode,
         status=run.status,
         stage=run.stage,
+        current_stage=run.current_stage,
+        progress=run.progress,
         started_at=run.started_at.isoformat() if run.started_at else None,
         finished_at=run.finished_at.isoformat() if run.finished_at else None,
         stats=run.stats.model_dump(),
@@ -478,142 +490,93 @@ async def verify_run(
         )
 
 
-@router.post("/projects/{project_id}/batch-migrate", response_model=BatchMigrationResponse)
-async def batch_migrate_projects(
-    project_id: str,
-    request: BatchMigrationRequest,
+@router.get("/runs/{run_id}/progress")
+async def get_run_progress(
+    run_id: str,
     current_user: User = Depends(require_operator)
 ):
     """
-    Execute parallel migration for multiple projects.
+    Get current run progress (REST polling fallback)
     
-    This endpoint supports batch migration of multiple GitLab projects
-    with configurable parallelism, allowing organizations to migrate
-    many projects efficiently.
-    
-    Args:
-        project_id: The GL2GH project ID containing migration settings
-        request: Batch migration request with project IDs and settings
-        current_user: Authenticated user
-        
-    Returns:
-        Batch migration response with tracking information
+    This endpoint provides a REST-based fallback for clients that cannot
+    use WebSocket or SSE connections. Clients can poll this endpoint to
+    get the latest run progress.
     """
-    await check_project_access(project_id, current_user)
+    run = await check_run_access(run_id, current_user)
     
-    # Validate parallelism limit
-    if request.parallel_limit < 1 or request.parallel_limit > 20:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="parallel_limit must be between 1 and 20"
-        )
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "stage": run.stage,
+        "current_stage": run.current_stage,
+        "progress": run.progress,
+        "stats": run.stats.model_dump(),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "error": run.error
+    }
+
+
+@router.get("/runs/{run_id}/stream")
+async def run_events_stream(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """
+    SSE stream for run progress (WebSocket alternative)
     
-    # Validate project_ids list
-    if not request.project_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="project_ids list cannot be empty"
-        )
+    This endpoint provides Server-Sent Events as an alternative to WebSocket
+    for real-time updates. It's more reliable on unstable networks and
+    doesn't require special protocol support.
+    """
+    # Check access first
+    await check_run_access(run_id, current_user)
     
-    if len(request.project_ids) > 100:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot migrate more than 100 projects in a single batch"
-        )
+    async def event_generator():
+        """Generate SSE events for this run"""
+        # Subscribe to updates for this run
+        queue = await sse_manager.subscribe(run_id)
+        
+        try:
+            # Send initial connection message
+            run_service = RunService()
+            run = await run_service.get_run(run_id)
+            if run:
+                initial_data = {
+                    "run_id": str(run.id),
+                    "status": run.status,
+                    "stage": run.stage,
+                    "current_stage": run.current_stage,
+                    "progress": run.progress,
+                    "stats": run.stats.model_dump(),
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                    "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                }
+                yield {
+                    "event": "connected",
+                    "data": json.dumps(initial_data)
+                }
+            
+            # Stream updates from the queue
+            while True:
+                try:
+                    # Wait for updates with timeout to send keepalive
+                    update = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield {
+                        "event": "run_update",
+                        "data": json.dumps(update)
+                    }
+                except asyncio.TimeoutError:
+                    # Send keepalive comment to keep connection alive
+                    yield {
+                        "event": "keepalive",
+                        "data": json.dumps({"timestamp": datetime.utcnow().isoformat()})
+                    }
+        except asyncio.CancelledError:
+            # Client disconnected
+            logger.info(f"SSE client disconnected from run {run_id}")
+        finally:
+            # Clean up subscription
+            await sse_manager.unsubscribe(run_id, queue)
     
-    project_service = ProjectService()
-    connection_service = ConnectionService()
-    
-    try:
-        # Fetch project to get settings
-        project = await project_service.get_project(project_id)
-        if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-        
-        # Fetch GitLab connection and get decrypted token
-        gitlab_url = None
-        gitlab_token = None
-        gitlab_conn = await connection_service.get_connection_by_type(project_id, "gitlab")
-        if gitlab_conn:
-            gitlab_url = gitlab_conn.base_url or "https://gitlab.com"
-            gitlab_token = await connection_service.get_decrypted_token(str(gitlab_conn.id), project_id)
-        
-        # Fetch GitHub connection and get decrypted token
-        github_token = None
-        github_org = None
-        github_conn = await connection_service.get_connection_by_type(project_id, "github")
-        if github_conn:
-            github_token = await connection_service.get_decrypted_token(str(github_conn.id), project_id)
-        
-        # Get GitHub org from project settings
-        settings = project.settings
-        if settings and hasattr(settings, 'github') and settings.github:
-            github_org = settings.github.get("org")
-        
-        # Build config with safe attribute access
-        max_api_calls = 5000
-        max_per_project_calls = 200
-        include_archived = False
-        
-        if settings and hasattr(settings, 'budgets') and settings.budgets:
-            max_api_calls = settings.budgets.get("max_api_calls", 5000)
-            max_per_project_calls = settings.budgets.get("max_per_project_calls", 200)
-        
-        if settings and hasattr(settings, 'behavior') and settings.behavior:
-            include_archived = settings.behavior.get("include_archived", False)
-        
-        # Prepare base config shared across all projects
-        base_config = {
-            "gitlab_url": gitlab_url,
-            "gitlab_token": gitlab_token,
-            "github_token": github_token,
-            "github_org": github_org,
-            "max_api_calls": max_api_calls,
-            "max_per_project_calls": max_per_project_calls,
-            "include_archived": include_archived,
-        }
-        
-        # Import and dispatch the batch migration task
-        from app.workers.tasks import run_batch_migration
-        import uuid
-        
-        # Generate a batch ID for tracking
-        batch_id = str(uuid.uuid4())
-        
-        # Dispatch the batch migration as a Celery task
-        task = run_batch_migration.delay(
-            batch_id=batch_id,
-            project_id=project_id,
-            project_ids=request.project_ids,
-            mode=request.mode,
-            parallel_limit=request.parallel_limit,
-            base_config=base_config,
-            resume_from=request.resume_from
-        )
-        
-        logger.info(
-            f"Batch migration dispatched: batch_id={batch_id}, "
-            f"projects={len(request.project_ids)}, "
-            f"parallelism={request.parallel_limit}, "
-            f"task_id={task.id}"
-        )
-        
-        return BatchMigrationResponse(
-            batch_id=batch_id,
-            total_projects=len(request.project_ids),
-            parallel_limit=request.parallel_limit,
-            status="started",
-            message=f"Batch migration started with {len(request.project_ids)} projects"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to start batch migration: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start batch migration: {str(e)}"
-        )
+    return EventSourceResponse(event_generator())
