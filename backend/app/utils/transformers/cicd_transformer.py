@@ -72,9 +72,11 @@ class CICDTransformer(BaseTransformer):
             self.log_transform_complete(True, f"Converted {len(jobs)} jobs")
             
         except yaml.YAMLError as e:
+            result.success = False
             result.add_error(f"Invalid YAML: {str(e)}")
             self.log_transform_complete(False, f"YAML parsing error: {str(e)}")
         except Exception as e:
+            result.success = False
             result.add_error(f"Transformation error: {str(e)}")
             self.log_transform_complete(False, str(e))
         
@@ -151,17 +153,33 @@ class CICDTransformer(BaseTransformer):
         if "variables" in job_config:
             gh_job["env"] = self._convert_variables(job_config["variables"])
         
+        # Handle timeout
+        if "timeout" in job_config:
+            timeout_minutes = self._convert_timeout(job_config["timeout"])
+            if timeout_minutes:
+                gh_job["timeout-minutes"] = timeout_minutes
+        
+        # Handle allow_failure (continue-on-error)
+        if "allow_failure" in job_config:
+            gh_job["continue-on-error"] = bool(job_config["allow_failure"])
+        
+        # Handle parallel/matrix
+        if "parallel" in job_config:
+            strategy = self._convert_parallel(job_config["parallel"])
+            if strategy:
+                gh_job["strategy"] = strategy
+        
         # Handle if conditions (rules)
         if_condition = self._convert_rules(job_config)
         if if_condition:
             gh_job["if"] = if_condition
         
         # Convert steps
-        gh_job["steps"] = self._convert_steps(job_config)
+        gh_job["steps"] = self._convert_steps(job_config, job_config.get("retry"))
         
         return gh_job
     
-    def _convert_steps(self, job_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _convert_steps(self, job_config: Dict[str, Any], retry_config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Convert GitLab CI scripts to GitHub Actions steps"""
         steps = []
         
@@ -171,19 +189,34 @@ class CICDTransformer(BaseTransformer):
             "uses": "actions/checkout@v4"
         })
         
+        # Handle cache
+        if "cache" in job_config:
+            cache_step = self._convert_cache(job_config["cache"])
+            if cache_step:
+                # Cache should be early in the steps
+                steps.append(cache_step)
+        
         # Before script
         if "before_script" in job_config:
-            steps.append({
+            before_step = {
                 "name": "Before script",
                 "run": self._convert_script_to_run(job_config["before_script"])
-            })
+            }
+            # Add retry to before_script if configured
+            if retry_config:
+                self._add_retry_to_step(before_step, retry_config)
+            steps.append(before_step)
         
         # Main script
         if "script" in job_config:
-            steps.append({
+            main_step = {
                 "name": "Run script",
                 "run": self._convert_script_to_run(job_config["script"])
-            })
+            }
+            # Add retry to main script if configured
+            if retry_config:
+                self._add_retry_to_step(main_step, retry_config)
+            steps.append(main_step)
         
         # After script
         if "after_script" in job_config:
@@ -198,13 +231,6 @@ class CICDTransformer(BaseTransformer):
             artifact_step = self._convert_artifacts(job_config["artifacts"])
             if artifact_step:
                 steps.append(artifact_step)
-        
-        # Handle cache
-        if "cache" in job_config:
-            cache_step = self._convert_cache(job_config["cache"])
-            if cache_step:
-                # Cache should be early in the steps
-                steps.insert(1, cache_step)
         
         return steps
     
@@ -390,7 +416,7 @@ class CICDTransformer(BaseTransformer):
         if not paths:
             return None
         
-        return {
+        artifact_step = {
             "name": "Upload artifacts",
             "uses": "actions/upload-artifact@v4",
             "with": {
@@ -398,6 +424,14 @@ class CICDTransformer(BaseTransformer):
                 "path": "\n".join(paths) if isinstance(paths, list) else paths
             }
         }
+        
+        # Handle expire_in (convert to retention-days)
+        if "expire_in" in artifacts:
+            retention_days = self._convert_expire_in(artifacts["expire_in"])
+            if retention_days:
+                artifact_step["with"]["retention-days"] = retention_days
+        
+        return artifact_step
     
     def _convert_cache(self, cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Convert GitLab CI cache to GitHub Actions cache"""
@@ -408,9 +442,11 @@ class CICDTransformer(BaseTransformer):
         if not paths:
             return None
         
+        # Convert cache key with variable substitution
         key = cache.get("key", "${{ runner.os }}-cache")
+        key = self._convert_cache_key(key)
         
-        return {
+        cache_step = {
             "name": "Cache dependencies",
             "uses": "actions/cache@v4",
             "with": {
@@ -418,6 +454,13 @@ class CICDTransformer(BaseTransformer):
                 "key": key
             }
         }
+        
+        # Handle restore-keys if key has variables
+        if "files" in cache or "$CI" in cache.get("key", ""):
+            # Add restore keys for better cache hit rate
+            cache_step["with"]["restore-keys"] = f"{key.split('-')[0]}-"
+        
+        return cache_step
     
     def _convert_rules(self, job_config: Dict[str, Any]) -> Optional[str]:
         """Convert GitLab CI rules to GitHub Actions if conditions"""
@@ -551,3 +594,209 @@ class CICDTransformer(BaseTransformer):
         # Remove leading/trailing hyphens
         sanitized = sanitized.strip('-')
         return sanitized.lower()
+    
+    def _convert_timeout(self, timeout: Any) -> Optional[int]:
+        """Convert GitLab CI timeout to GitHub Actions timeout-minutes"""
+        if isinstance(timeout, int):
+            # Assume minutes if just a number
+            return timeout
+        
+        if isinstance(timeout, str):
+            # Parse time strings like "1h", "30m", "1h 30m"
+            timeout = timeout.lower().strip()
+            
+            # Try to parse common formats
+            minutes = 0
+            
+            # Hours
+            if 'h' in timeout:
+                hours_match = re.search(r'(\d+)\s*h', timeout)
+                if hours_match:
+                    minutes += int(hours_match.group(1)) * 60
+            
+            # Minutes
+            if 'm' in timeout:
+                minutes_match = re.search(r'(\d+)\s*m', timeout)
+                if minutes_match:
+                    minutes += int(minutes_match.group(1))
+            
+            # Seconds (convert to minutes, round up)
+            if 's' in timeout and 'm' not in timeout:
+                seconds_match = re.search(r'(\d+)\s*s', timeout)
+                if seconds_match:
+                    minutes = (int(seconds_match.group(1)) + 59) // 60  # Round up
+            
+            if minutes > 0:
+                return minutes
+            
+            # Try parsing as plain number
+            try:
+                return int(timeout)
+            except ValueError:
+                pass
+        
+        # Log conversion gap
+        self.conversion_gaps.append({
+            "type": "timeout",
+            "value": timeout,
+            "message": f"Could not parse timeout value '{timeout}'",
+            "action": "Manually set timeout-minutes in workflow file"
+        })
+        
+        return None
+    
+    def _convert_expire_in(self, expire_in: str) -> Optional[int]:
+        """Convert GitLab CI expire_in to GitHub Actions retention-days"""
+        if not isinstance(expire_in, str):
+            return None
+        
+        expire_in = expire_in.lower().strip()
+        
+        # Parse time strings like "1 week", "30 days", "2 weeks"
+        days = 0
+        
+        # Weeks
+        if 'week' in expire_in:
+            weeks_match = re.search(r'(\d+)\s*week', expire_in)
+            if weeks_match:
+                days = int(weeks_match.group(1)) * 7
+        # Days
+        elif 'day' in expire_in:
+            days_match = re.search(r'(\d+)\s*day', expire_in)
+            if days_match:
+                days = int(days_match.group(1))
+        # Months (approximate as 30 days)
+        elif 'month' in expire_in:
+            months_match = re.search(r'(\d+)\s*month', expire_in)
+            if months_match:
+                days = int(months_match.group(1)) * 30
+        # Years (approximate as 365 days)
+        elif 'year' in expire_in:
+            years_match = re.search(r'(\d+)\s*year', expire_in)
+            if years_match:
+                days = int(years_match.group(1)) * 365
+        
+        # GitHub Actions max retention is 90 days for public repos, 400 for private
+        # Default to 90 as safe limit
+        if days > 90:
+            self.conversion_gaps.append({
+                "type": "artifact_retention",
+                "value": expire_in,
+                "message": f"Artifact retention '{expire_in}' exceeds GitHub's default 90-day limit",
+                "action": "Review retention policy and adjust if needed"
+            })
+            days = 90
+        
+        return days if days > 0 else None
+    
+    def _convert_cache_key(self, key: str) -> str:
+        """Convert GitLab CI cache key to GitHub Actions cache key"""
+        if not isinstance(key, str):
+            return "${{ runner.os }}-cache"
+        
+        # Replace GitLab CI variables with GitHub equivalents
+        gh_key = key
+        
+        replacements = {
+            "$CI_COMMIT_REF_SLUG": "${{ github.ref_name }}",
+            "$CI_COMMIT_REF_NAME": "${{ github.ref_name }}",
+            "$CI_COMMIT_SHA": "${{ github.sha }}",
+            "$CI_PROJECT_NAME": "${{ github.event.repository.name }}",
+            "$CI_JOB_NAME": "${{ github.job }}",
+            "$CI_PIPELINE_ID": "${{ github.run_id }}",
+        }
+        
+        for gitlab_var, github_var in replacements.items():
+            gh_key = gh_key.replace(gitlab_var, github_var)
+        
+        # If still has unreplaced variables, log gap
+        if "$CI_" in gh_key:
+            self.conversion_gaps.append({
+                "type": "cache_key",
+                "value": key,
+                "message": f"Cache key contains unconverted GitLab variables",
+                "action": "Review and update cache key in workflow file"
+            })
+        
+        return gh_key
+    
+    def _convert_parallel(self, parallel: Any) -> Optional[Dict[str, Any]]:
+        """Convert GitLab CI parallel to GitHub Actions strategy matrix"""
+        if isinstance(parallel, int):
+            # Simple numeric parallel - not directly supported
+            # GitHub uses matrix, so we'll create a numeric range
+            self.conversion_gaps.append({
+                "type": "parallel_numeric",
+                "value": parallel,
+                "message": f"Numeric parallel ({parallel}) converted to matrix with index",
+                "action": "Review matrix configuration and adjust if needed"
+            })
+            return {
+                "matrix": {
+                    "index": list(range(1, parallel + 1))
+                }
+            }
+        
+        if isinstance(parallel, dict):
+            if "matrix" in parallel:
+                # Matrix-style parallel
+                matrix_config = parallel["matrix"]
+                
+                if isinstance(matrix_config, list):
+                    # List of variable combinations
+                    # Convert to GitHub Actions matrix format
+                    gh_matrix = {}
+                    
+                    # Extract all keys from first item
+                    if matrix_config:
+                        first_item = matrix_config[0]
+                        for key in first_item.keys():
+                            # Collect all unique values for this key
+                            values = []
+                            for item in matrix_config:
+                                if key in item:
+                                    val = item[key]
+                                    if isinstance(val, list):
+                                        values.extend(val)
+                                    else:
+                                        if val not in values:
+                                            values.append(val)
+                            
+                            gh_matrix[key.lower()] = values
+                    
+                    return {"matrix": gh_matrix}
+                
+                elif isinstance(matrix_config, dict):
+                    # Dictionary of variables with value lists
+                    gh_matrix = {}
+                    for key, values in matrix_config.items():
+                        if isinstance(values, list):
+                            gh_matrix[key.lower()] = values
+                        else:
+                            gh_matrix[key.lower()] = [values]
+                    
+                    return {"matrix": gh_matrix}
+        
+        return None
+    
+    def _add_retry_to_step(self, step: Dict[str, Any], retry_config: Any):
+        """Add retry configuration to a step using uses: nick-fields/retry@v3"""
+        if not retry_config:
+            return
+        
+        # Determine max attempts
+        max_attempts = 2  # Default
+        
+        if isinstance(retry_config, int):
+            max_attempts = retry_config + 1  # GitLab counts retries, GitHub counts total attempts
+        elif isinstance(retry_config, dict):
+            max_attempts = retry_config.get("max", 2) + 1
+        
+        # Note: GitHub Actions doesn't have native step retry
+        # We'll document this as a gap and suggest using a retry action
+        self.conversion_gaps.append({
+            "type": "retry",
+            "value": retry_config,
+            "message": f"Retry configuration detected (max attempts: {max_attempts})",
+            "action": "Consider using nick-fields/retry@v3 action for step retries"
+        })

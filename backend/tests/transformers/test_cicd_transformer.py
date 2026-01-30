@@ -197,3 +197,202 @@ class TestCICDTransformer:
         
         # Job name should be sanitized
         assert "build-test" in workflow["jobs"] or "build-and-test" in workflow["jobs"]
+    
+    def test_timeout_conversion(self):
+        """Test timeout to timeout-minutes conversion"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "timeout": "1h 30m"
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        assert "timeout-minutes" in test_job
+        assert test_job["timeout-minutes"] == 90
+    
+    def test_timeout_conversion_numeric(self):
+        """Test numeric timeout conversion"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "timeout": 60
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        assert "timeout-minutes" in test_job
+        assert test_job["timeout-minutes"] == 60
+    
+    def test_allow_failure_conversion(self):
+        """Test allow_failure to continue-on-error conversion"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "allow_failure": True
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        assert "continue-on-error" in test_job
+        assert test_job["continue-on-error"] is True
+    
+    def test_parallel_numeric_conversion(self):
+        """Test numeric parallel to matrix conversion"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "parallel": 3
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        assert "strategy" in test_job
+        assert "matrix" in test_job["strategy"]
+        assert "index" in test_job["strategy"]["matrix"]
+        assert test_job["strategy"]["matrix"]["index"] == [1, 2, 3]
+    
+    def test_parallel_matrix_conversion(self):
+        """Test parallel matrix to strategy matrix conversion"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "parallel": {
+                    "matrix": [
+                        {"NODE": "14", "OS": "ubuntu"},
+                        {"NODE": "16", "OS": "ubuntu"},
+                        {"NODE": "18", "OS": "macos"}
+                    ]
+                }
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        assert "strategy" in test_job
+        assert "matrix" in test_job["strategy"]
+        assert "node" in test_job["strategy"]["matrix"]
+        assert "os" in test_job["strategy"]["matrix"]
+    
+    def test_parallel_matrix_dict_conversion(self):
+        """Test parallel matrix dict format conversion"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "parallel": {
+                    "matrix": {
+                        "NODE": ["14", "16", "18"],
+                        "OS": ["ubuntu", "macos"]
+                    }
+                }
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        assert "strategy" in test_job
+        assert "matrix" in test_job["strategy"]
+        assert test_job["strategy"]["matrix"]["node"] == ["14", "16", "18"]
+        assert test_job["strategy"]["matrix"]["os"] == ["ubuntu", "macos"]
+    
+    def test_artifacts_expire_in_conversion(self):
+        """Test artifacts expire_in to retention-days conversion"""
+        gitlab_ci = {
+            "build": {
+                "script": ["make build"],
+                "artifacts": {
+                    "name": "build-artifacts",
+                    "paths": ["dist/"],
+                    "expire_in": "1 week"
+                }
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        build_job = workflow["jobs"]["build"]
+        
+        # Find upload artifact step
+        artifact_step = None
+        for step in build_job["steps"]:
+            if "upload-artifact" in str(step.get("uses", "")):
+                artifact_step = step
+                break
+        
+        assert artifact_step is not None
+        assert "retention-days" in artifact_step["with"]
+        assert artifact_step["with"]["retention-days"] == 7
+    
+    def test_cache_key_variable_substitution(self):
+        """Test cache key variable substitution"""
+        gitlab_ci = {
+            "test": {
+                "script": ["npm test"],
+                "cache": {
+                    "key": "$CI_COMMIT_REF_SLUG-npm",
+                    "paths": ["node_modules/"]
+                }
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        workflow = result.data["workflow"]
+        test_job = workflow["jobs"]["test"]
+        
+        # Find cache step
+        cache_step = None
+        for step in test_job["steps"]:
+            if "actions/cache" in str(step.get("uses", "")):
+                cache_step = step
+                break
+        
+        assert cache_step is not None
+        assert "${{ github.ref_name }}" in cache_step["with"]["key"]
+    
+    def test_retry_gap_tracking(self):
+        """Test that retry configuration is tracked as a gap"""
+        gitlab_ci = {
+            "test": {
+                "script": ["pytest"],
+                "retry": 2
+            }
+        }
+        
+        result = self.transformer.transform({"gitlab_ci_yaml": gitlab_ci})
+        
+        assert result.success
+        # Should track gap for retry
+        gap_types = [gap["type"] for gap in result.metadata["conversion_gaps"]]
+        assert "retry" in gap_types
