@@ -34,7 +34,6 @@ class CommitWorkflowAction(BaseAction):
                 )
                 if existing_content:
                     # Get SHA for update
-                    owner, repo = target_repo.split("/")
                     response = await self.github_client._request(
                         'GET',
                         f"/repos/{target_repo}/contents/{target_path}",
@@ -55,7 +54,7 @@ class CommitWorkflowAction(BaseAction):
                     action = "updated"
                 else:
                     raise FileNotFoundError()
-            except (FileNotFoundError, httpx.HTTPStatusError) as e:
+            except FileNotFoundError:
                 # Create new file
                 await self.github_client.create_or_update_file(
                     repo=target_repo,
@@ -65,6 +64,19 @@ class CommitWorkflowAction(BaseAction):
                     branch=branch
                 )
                 action = "created"
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    # Create new file
+                    await self.github_client.create_or_update_file(
+                        repo=target_repo,
+                        path=target_path,
+                        content=content,
+                        message=commit_message,
+                        branch=branch
+                    )
+                    action = "created"
+                else:
+                    raise
             
             return ActionResult(
                 success=True,

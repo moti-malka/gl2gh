@@ -222,17 +222,14 @@ class ConfigureRepositoryAction(BaseAction):
             
             # Note: GitHubClient doesn't support repository settings updates
             # This would require additional REST API endpoints
-            self.logger.warning("Repository configuration not fully implemented - manual setup required")
+            self.logger.warning("Repository configuration not implemented - manual setup required")
             
             return ActionResult(
-                success=True,
+                success=False,
                 action_id=self.action_id,
                 action_type=self.action_type,
-                outputs={
-                    "configured": False,
-                    "target_repo": target_repo,
-                    "note": "Repository settings updates not supported yet - manual setup required"
-                }
+                outputs={"target_repo": target_repo},
+                error="Repository settings updates not supported yet - manual setup required"
             )
         except Exception as e:
             return ActionResult(

@@ -36,13 +36,19 @@ class CreatePullRequestAction(BaseAction):
                         base=base
                     )
                     
-                    # Note: Adding labels, milestone, assignees after PR creation
-                    # requires additional API calls not implemented in GitHubClient yet
-                    # Would need: PATCH /repos/{owner}/{repo}/issues/{issue_number}
-                    
                     # Store ID mapping
                     if gitlab_mr_id:
                         self.set_id_mapping("merge_request", gitlab_mr_id, pr["number"])
+                    
+                    # Note: Labels, milestone, and assignees cannot be added via create_pull_request
+                    # Would require additional PATCH /repos/{owner}/{repo}/issues/{number} calls
+                    warnings = []
+                    if labels:
+                        warnings.append(f"Labels not added: {labels}")
+                    if milestone_number:
+                        warnings.append(f"Milestone not set: {milestone_number}")
+                    if assignees:
+                        warnings.append(f"Assignees not added: {assignees}")
                     
                     return ActionResult(
                         success=True,
@@ -52,7 +58,8 @@ class CreatePullRequestAction(BaseAction):
                             "pr_number": pr["number"],
                             "pr_url": pr["html_url"],
                             "gitlab_mr_id": gitlab_mr_id,
-                            "created_as": "pull_request"
+                            "created_as": "pull_request",
+                            "warnings": warnings if warnings else None
                         }
                     )
                 except Exception as pr_error:

@@ -17,16 +17,14 @@ class CreateLabelAction(BaseAction):
             
             # Note: GitHubClient doesn't have label creation method yet
             # Would need REST API: POST /repos/{owner}/{repo}/labels
-            self.logger.warning(f"Label creation not implemented - manual setup required for: {name}")
+            self.logger.warning(f"Label creation not implemented - will need manual setup for: {name}")
             
             return ActionResult(
-                success=True,
+                success=False,
                 action_id=self.action_id,
                 action_type=self.action_type,
-                outputs={
-                    "label_name": name,
-                    "note": "Label creation not supported yet - manual setup required"
-                }
+                outputs={"label_name": name},
+                error="Label creation not supported yet - manual setup required"
             )
         except Exception as e:
             return ActionResult(
@@ -48,19 +46,16 @@ class CreateMilestoneAction(BaseAction):
             
             # Note: GitHubClient doesn't have milestone creation method yet
             # Would need REST API: POST /repos/{owner}/{repo}/milestones
-            self.logger.warning(f"Milestone creation not implemented - manual setup required for: {title}")
+            self.logger.warning(f"Milestone creation not implemented - will need manual setup for: {title}")
             
             gitlab_id = self.parameters.get("gitlab_milestone_id")
             
             return ActionResult(
-                success=True,
+                success=False,
                 action_id=self.action_id,
                 action_type=self.action_type,
-                outputs={
-                    "milestone_title": title,
-                    "gitlab_id": gitlab_id,
-                    "note": "Milestone creation not supported yet - manual setup required"
-                }
+                outputs={"milestone_title": title, "gitlab_id": gitlab_id},
+                error="Milestone creation not supported yet - manual setup required"
             )
         except Exception as e:
             return ActionResult(
