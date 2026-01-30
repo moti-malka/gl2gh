@@ -5,7 +5,8 @@ import subprocess
 import shutil
 import urllib.parse
 import asyncio
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Set
 from pathlib import Path
 from datetime import datetime
 from app.agents.base_agent import BaseAgent, AgentResult
@@ -14,6 +15,14 @@ from app.clients.gitlab_client import GitLabClient
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# Attachment URL patterns for GitLab
+ATTACHMENT_PATTERNS = [
+    r'!\[.*?\]\((/uploads/[^)]+)\)',           # Images: ![alt](/uploads/...)
+    r'\[.*?\]\((/uploads/[^)]+)\)',            # Files: [name](/uploads/...)
+    r'(/uploads/[a-f0-9]+/[^\s)]+)',           # Direct upload links
+]
 
 
 class ExportAgent(BaseAgent):
@@ -253,6 +262,75 @@ class ExportAgent(BaseAgent):
         error_msg = error_msg.replace("oauth2:", "***AUTH***:")
         return error_msg
     
+    def _extract_attachments(self, content: str) -> Set[str]:
+        """
+        Extract attachment URLs from content.
+        
+        Args:
+            content: Markdown content to scan
+            
+        Returns:
+            Set of attachment paths found
+        """
+        if not content:
+            return set()
+        
+        attachments = set()
+        for pattern in ATTACHMENT_PATTERNS:
+            matches = re.findall(pattern, content)
+            attachments.update(matches)
+        
+        return attachments
+    
+    async def _download_attachment(
+        self,
+        project_path: str,
+        attachment_path: str,
+        output_dir: Path
+    ) -> Optional[Path]:
+        """
+        Download an attachment from GitLab.
+        
+        Args:
+            project_path: GitLab project path (e.g., "group/project")
+            attachment_path: Attachment path (e.g., "/uploads/abc123/file.png")
+            output_dir: Base output directory for attachments
+            
+        Returns:
+            Local path to downloaded file, or None if failed
+        """
+        try:
+            # Construct full URL
+            # GitLab attachment URLs are: {base_url}/{project_path}{attachment_path}
+            url = f"{self.gitlab_client.base_url}/{project_path}{attachment_path}"
+            
+            # Create filename from path (keep hash for uniqueness)
+            # /uploads/abc123def/screenshot.png -> abc123def_screenshot.png
+            path_parts = attachment_path.strip('/').split('/')
+            if len(path_parts) >= 3:  # uploads/hash/filename
+                hash_part = path_parts[1]
+                filename = path_parts[-1]
+                safe_filename = f"{hash_part}_{filename}"
+            else:
+                # Fallback: use sanitized full path
+                safe_filename = attachment_path.replace('/', '_').strip('_')
+            
+            output_path = output_dir / safe_filename
+            
+            # Download the file
+            success = await self.gitlab_client.download_file(url, output_path)
+            
+            if success:
+                self.log_event("DEBUG", f"Downloaded attachment: {attachment_path} -> {safe_filename}")
+                return output_path
+            else:
+                self.log_event("WARNING", f"Failed to download attachment: {attachment_path}")
+                return None
+                
+        except Exception as e:
+            self.log_event("WARNING", f"Error downloading attachment {attachment_path}: {e}")
+            return None
+    
     def _create_directory_structure(self, output_dir: Path):
         """Create export directory structure"""
         subdirs = [
@@ -263,6 +341,7 @@ class ExportAgent(BaseAgent):
             "issues",
             "issues/attachments",
             "merge_requests",
+            "merge_requests/attachments",
             "wiki",
             "releases",
             "releases/assets",
@@ -438,7 +517,10 @@ class ExportAgent(BaseAgent):
         """Export all issues with comments and attachments"""
         try:
             issues_dir = output_dir / "issues"
+            attachments_dir = issues_dir / "attachments"
             all_issues = []
+            attachment_metadata = {}  # Maps old paths to new paths
+            project_path = project.get('path_with_namespace', str(project_id))
             
             # Check if resuming
             last_processed = None
@@ -464,6 +546,28 @@ class ExportAgent(BaseAgent):
                 notes = await self.gitlab_client.list_issue_notes(project_id, issue_iid)
                 full_issue['notes'] = notes
                 
+                # Extract and download attachments from description
+                attachments_found = set()
+                if full_issue.get('description'):
+                    attachments_found.update(self._extract_attachments(full_issue['description']))
+                
+                # Extract attachments from notes/comments
+                for note in notes:
+                    if note.get('body'):
+                        attachments_found.update(self._extract_attachments(note['body']))
+                
+                # Download attachments
+                for attachment_path in attachments_found:
+                    if attachment_path not in attachment_metadata:
+                        local_path = await self._download_attachment(
+                            project_path,
+                            attachment_path,
+                            attachments_dir
+                        )
+                        if local_path:
+                            # Store relative path for later use
+                            attachment_metadata[attachment_path] = str(local_path.relative_to(output_dir))
+                
                 all_issues.append(full_issue)
                 
                 # Update checkpoint progress every 10 issues
@@ -479,6 +583,12 @@ class ExportAgent(BaseAgent):
             # Save all issues
             with open(issues_dir / "issues.json", 'w') as f:
                 json.dump(all_issues, f, indent=2)
+            
+            # Save attachment metadata mapping
+            if attachment_metadata:
+                with open(issues_dir / "attachment_metadata.json", 'w') as f:
+                    json.dump(attachment_metadata, f, indent=2)
+                self.log_event("INFO", f"Downloaded {len(attachment_metadata)} attachments for issues")
             
             return {
                 "success": True,
@@ -497,7 +607,10 @@ class ExportAgent(BaseAgent):
         """Export all merge requests with discussions"""
         try:
             mrs_dir = output_dir / "merge_requests"
+            attachments_dir = mrs_dir / "attachments"
             all_mrs = []
+            attachment_metadata = {}  # Maps old paths to new paths
+            project_path = project.get('path_with_namespace', str(project_id))
             
             # Check if resuming
             last_processed = None
@@ -527,6 +640,29 @@ class ExportAgent(BaseAgent):
                 approvals = await self.gitlab_client.list_merge_request_approvals(project_id, mr_iid)
                 full_mr['approvals'] = approvals
                 
+                # Extract and download attachments from description
+                attachments_found = set()
+                if full_mr.get('description'):
+                    attachments_found.update(self._extract_attachments(full_mr['description']))
+                
+                # Extract attachments from discussions
+                for discussion in discussions:
+                    for note in discussion.get('notes', []):
+                        if note.get('body'):
+                            attachments_found.update(self._extract_attachments(note['body']))
+                
+                # Download attachments
+                for attachment_path in attachments_found:
+                    if attachment_path not in attachment_metadata:
+                        local_path = await self._download_attachment(
+                            project_path,
+                            attachment_path,
+                            attachments_dir
+                        )
+                        if local_path:
+                            # Store relative path for later use
+                            attachment_metadata[attachment_path] = str(local_path.relative_to(output_dir))
+                
                 all_mrs.append(full_mr)
                 
                 # Update checkpoint progress every 10 MRs
@@ -542,6 +678,12 @@ class ExportAgent(BaseAgent):
             # Save all MRs
             with open(mrs_dir / "merge_requests.json", 'w') as f:
                 json.dump(all_mrs, f, indent=2)
+            
+            # Save attachment metadata mapping
+            if attachment_metadata:
+                with open(mrs_dir / "attachment_metadata.json", 'w') as f:
+                    json.dump(attachment_metadata, f, indent=2)
+                self.log_event("INFO", f"Downloaded {len(attachment_metadata)} attachments for merge requests")
             
             return {
                 "success": True,
