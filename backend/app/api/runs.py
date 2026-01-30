@@ -44,6 +44,23 @@ class VerifyRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class BatchMigrationRequest(BaseModel):
+    """Request model for batch migration of multiple projects"""
+    project_ids: List[int]  # List of GitLab project IDs to migrate
+    mode: str = "PLAN_ONLY"
+    parallel_limit: int = 5  # Maximum concurrent migrations
+    resume_from: Optional[str] = None
+
+
+class BatchMigrationResponse(BaseModel):
+    """Response model for batch migration"""
+    batch_id: str  # Identifier for tracking this batch
+    total_projects: int
+    parallel_limit: int
+    status: str
+    message: str
+
+
 class RunResponse(BaseModel):
     id: str
     project_id: str

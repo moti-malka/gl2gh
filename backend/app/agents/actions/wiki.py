@@ -24,12 +24,14 @@ class PushWikiAction(BaseAction):
                     outputs={"skipped": True, "reason": "No wiki content found"}
                 )
             
-            # Get repository
-            repo = self.github_client.get_repo(target_repo)
+            # Get repository to check if wiki is enabled
+            owner, repo = target_repo.split("/")
+            repo_data = await self.github_client.get_repository(owner, repo)
             
-            # Enable wiki if not enabled
-            if not repo.has_wiki:
-                repo.edit(has_wiki=True)
+            # Enable wiki if not enabled (requires updating repo settings)
+            # Note: GitHubClient doesn't have repo update method yet
+            if not repo_data.get("has_wiki"):
+                self.logger.warning("Wiki not enabled on repository - manual setup required")
             
             # Clone wiki repository
             wiki_url = f"https://github.com/{target_repo}.wiki.git"
