@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 from .base import BaseAction, ActionResult
-from github import GithubException, InputGitTreeElement
+from github import GithubException
 
 
 class SetBranchProtectionAction(BaseAction):
@@ -29,8 +29,8 @@ class SetBranchProtectionAction(BaseAction):
             allow_deletions = self.parameters.get("allow_deletions", False)
             required_conversation_resolution = self.parameters.get("required_conversation_resolution", False)
             
-            # Get required_pull_request_reviews from parameters if provided as dict
-            required_pull_request_reviews = self.parameters.get("required_pull_request_reviews")
+            # Get required_status_checks from parameters if provided as dict
+            required_status_checks = self.parameters.get("required_status_checks")
             
             # Build protection parameters
             protection_params = {
@@ -41,11 +41,17 @@ class SetBranchProtectionAction(BaseAction):
             }
             
             # Add status checks if required
-            if require_status_checks or contexts:
+            if required_status_checks and isinstance(required_status_checks, dict):
+                # Status checks provided as dict
+                protection_params["strict"] = required_status_checks.get("strict", strict_status_checks)
+                protection_params["contexts"] = required_status_checks.get("contexts", [])
+            elif require_status_checks or contexts:
+                # Individual parameters
                 protection_params["strict"] = strict_status_checks
                 protection_params["contexts"] = contexts
             
             # Add required reviews
+            required_pull_request_reviews = self.parameters.get("required_pull_request_reviews")
             if required_pull_request_reviews:
                 # Use provided dict
                 protection_params["dismiss_stale_reviews"] = required_pull_request_reviews.get(

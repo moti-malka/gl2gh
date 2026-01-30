@@ -140,14 +140,6 @@ class ProtectionRulesTransformer(BaseTransformer):
         allow_force_push = gitlab_branch.get("allow_force_push", False)
         protection["allow_force_pushes"] = allow_force_push
         
-        if not allow_force_push:
-            self._add_gap(
-                "force_push_disabled",
-                f"Force push is disabled for branch '{branch_name}'",
-                "info",
-                {"branch": branch_name}
-            )
-        
         # Map merge access levels to required reviews
         if merge_access_levels:
             protection["required_pull_request_reviews"] = self._map_merge_access_to_reviews(
@@ -168,8 +160,8 @@ class ProtectionRulesTransformer(BaseTransformer):
             }
         
         # Map unprotect access level (GitHub doesn't have direct equivalent)
-        unprotect_access_level = gitlab_branch.get("unprotect_access_level", 40)
-        if unprotect_access_level:
+        if "unprotect_access_level" in gitlab_branch and gitlab_branch["unprotect_access_level"] is not None:
+            unprotect_access_level = gitlab_branch["unprotect_access_level"]
             self._add_gap(
                 "unprotect_access_level",
                 f"GitLab unprotect_access_level ({unprotect_access_level}) not directly mappable to GitHub",
@@ -350,7 +342,7 @@ class ProtectionRulesTransformer(BaseTransformer):
             
             # Determine file patterns
             file_pattern = rule.get("file_pattern", "*")
-            if not file_pattern or file_pattern == "*":
+            if not file_pattern:
                 file_pattern = "*"
             
             # Add comment for rule
