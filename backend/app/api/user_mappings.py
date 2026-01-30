@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 
 from app.models import User
 from app.services import UserMappingService
@@ -18,7 +18,10 @@ class UserMappingCreate(BaseModel):
     gitlab_email: Optional[str] = Field(None, description="GitLab email")
     github_username: Optional[str] = Field(None, description="GitHub username")
     confidence: Optional[float] = Field(1.0, ge=0.0, le=1.0, description="Confidence score")
-    match_method: Optional[str] = Field("manual", description="Match method")
+    match_method: Optional[Literal["email", "username", "name", "fuzzy_username", "fuzzy_name", "manual"]] = Field(
+        "manual", 
+        description="Match method"
+    )
     project_id: Optional[str] = Field(None, description="Optional project ID for project-level mapping")
 
 
@@ -231,6 +234,8 @@ async def update_user_mapping(
         )
 
 
+# NOTE: This route must be defined AFTER specific routes like /unmapped and /stats
+# to avoid path parameter matching issues
 @router.get("/{run_id}/user-mappings/{gitlab_username}", response_model=UserMappingResponse)
 async def get_user_mapping(
     run_id: str = Path(..., description="Run ID"),

@@ -155,7 +155,7 @@ class UserMapper(BaseTransformer):
             return mapping
         
         # Try username match (medium confidence)
-        github_match = self._match_by_username(gitlab_user, github_users)
+        github_match, is_fuzzy = self._match_by_username(gitlab_user, github_users)
         if github_match:
             mapping["github"] = {
                 "login": github_match.get("login"),
@@ -164,11 +164,11 @@ class UserMapper(BaseTransformer):
                 "name": github_match.get("name")
             }
             mapping["confidence"] = "medium"
-            mapping["method"] = "username"
+            mapping["method"] = "fuzzy_username" if is_fuzzy else "username"
             return mapping
         
         # Try name match (low confidence)
-        github_match = self._match_by_name(gitlab_user, github_users)
+        github_match, is_fuzzy = self._match_by_name(gitlab_user, github_users)
         if github_match:
             mapping["github"] = {
                 "login": github_match.get("login"),
@@ -177,7 +177,7 @@ class UserMapper(BaseTransformer):
                 "name": github_match.get("name")
             }
             mapping["confidence"] = "low"
-            mapping["method"] = "name"
+            mapping["method"] = "fuzzy_name" if is_fuzzy else "name"
             return mapping
         
         # No match found
@@ -210,51 +210,81 @@ class UserMapper(BaseTransformer):
         self,
         gitlab_user: Dict[str, Any],
         github_users: List[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
-        """Match GitLab user by username - exact match first, then fuzzy"""
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Match GitLab user by username - exact match first, then fuzzy.
+        
+        Returns:
+            Tuple of (matched_user, is_fuzzy_match)
+        """
         gitlab_username = gitlab_user.get("username")
         if not gitlab_username:
-            return None
+            return None, False
         
         gitlab_username_lower = gitlab_username.lower().strip()
+        gitlab_username_normalized = self._normalize_username(gitlab_username)
         
-        # Try exact match first
+        # Try exact match first (case-insensitive)
         for gh_user in github_users:
             gh_login = gh_user.get("login")
-            if gh_login and gh_login.lower().strip() == gitlab_username_lower:
-                return gh_user
+            if not gh_login:
+                continue
+            
+            # Exact match on lowercase
+            if gh_login.lower().strip() == gitlab_username_lower:
+                return gh_user, False
+            
+            # Exact match on normalized (e.g., john.doe matches johndoe)
+            gh_login_normalized = self._normalize_username(gh_login)
+            if gh_login_normalized == gitlab_username_normalized:
+                return gh_user, False
         
         # Try fuzzy match with high threshold
         best_match, best_score = self._fuzzy_match_username(gitlab_username, github_users)
-        if best_match and best_score >= 0.75:  # Slightly lower threshold for usernames
-            return best_match
+        if best_match and best_score >= 0.75 and best_score < 1.0:  # Fuzzy but not exact
+            return best_match, True
         
-        return None
+        return None, False
     
     def _match_by_name(
         self,
         gitlab_user: Dict[str, Any],
         github_users: List[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
-        """Match GitLab user by name (low confidence) - exact match first, then fuzzy"""
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Match GitLab user by name - exact match first, then fuzzy.
+        
+        Returns:
+            Tuple of (matched_user, is_fuzzy_match)
+        """
         gitlab_name = gitlab_user.get("name")
         if not gitlab_name:
-            return None
+            return None, False
         
         gitlab_name_lower = gitlab_name.lower().strip()
+        gitlab_name_normalized = self._normalize_name(gitlab_name)
         
-        # Try exact match first
+        # Try exact match first (case-insensitive)
         for gh_user in github_users:
             gh_name = gh_user.get("name")
-            if gh_name and gh_name.lower().strip() == gitlab_name_lower:
-                return gh_user
+            if not gh_name:
+                continue
+            
+            # Exact match on lowercase
+            if gh_name.lower().strip() == gitlab_name_lower:
+                return gh_user, False
+            
+            # Exact match on normalized (e.g., John-Doe matches John Doe)
+            gh_name_normalized = self._normalize_name(gh_name)
+            if gh_name_normalized == gitlab_name_normalized:
+                return gh_user, False
         
         # Try fuzzy match with high threshold
         best_match, best_score = self._fuzzy_match_name(gitlab_name, github_users)
-        if best_match and best_score >= 0.85:  # High threshold for name matching
-            return best_match
+        if best_match and best_score >= 0.85 and best_score < 1.0:  # Fuzzy but not exact
+            return best_match, True
         
-        return None
+        return None, False
     
     def get_mapping_summary(self, mappings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

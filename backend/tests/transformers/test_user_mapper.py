@@ -179,9 +179,11 @@ class TestUserMapper:
         mappings = result.data["mappings"]
         mapping = mappings[0]
         
-        # Should match despite case difference
-        assert mapping["confidence"] in ["medium", "low"]
+        # After normalization, JohnDoe -> johndoe, which exactly matches johndoe
+        # This is an exact username match (not fuzzy), so confidence should be medium
+        assert mapping["confidence"] == "medium"
         assert mapping["github"]["login"] == "johndoe"
+        assert mapping["method"] == "username"  # Exact match after normalization
     
     def test_multiple_users_mapping(self):
         """Test mapping multiple users at once"""
@@ -253,11 +255,11 @@ class TestUserMapper:
         assert summary["by_method"]["none"] == 1
     
     def test_fuzzy_username_match(self):
-        """Test fuzzy username matching"""
+        """Test fuzzy username matching with actual fuzzy similarity"""
         gitlab_users = [
             {
                 "id": 1,
-                "username": "john.doe",
+                "username": "johndoe1",
                 "email": "john1@example.com",
                 "name": "John Doe"
             }
@@ -265,7 +267,7 @@ class TestUserMapper:
         
         github_users = [
             {
-                "login": "johndoe",  # Similar but not exact
+                "login": "johndoe2",  # Similar username, 87.5% similarity after normalization
                 "id": 101,
                 "email": "john2@example.com",
                 "name": "John Doe"
@@ -282,10 +284,47 @@ class TestUserMapper:
         assert len(mappings) == 1
         
         mapping = mappings[0]
-        # Should match via fuzzy username matching
+        # Should match via fuzzy username matching (johndoe1 vs johndoe2 = 87.5% similar)
+        assert mapping["github"] is not None
+        assert mapping["github"]["login"] == "johndoe2"
+        assert mapping["confidence"] == "medium"
+        assert mapping["method"] == "fuzzy_username"
+    
+    def test_exact_username_after_normalization(self):
+        """Test that normalized usernames result in exact matches"""
+        gitlab_users = [
+            {
+                "id": 1,
+                "username": "john.doe",
+                "email": "john1@example.com",
+                "name": "John Doe"
+            }
+        ]
+        
+        github_users = [
+            {
+                "login": "johndoe",  # Becomes exact match after normalization
+                "id": 101,
+                "email": "john2@example.com",
+                "name": "John Doe"
+            }
+        ]
+        
+        result = self.mapper.transform({
+            "gitlab_users": gitlab_users,
+            "github_users": github_users
+        })
+        
+        assert result.success
+        mappings = result.data["mappings"]
+        assert len(mappings) == 1
+        
+        mapping = mappings[0]
+        # After normalization, john.doe -> johndoe, which is an exact match
         assert mapping["github"] is not None
         assert mapping["github"]["login"] == "johndoe"
-        assert mapping["confidence"] in ["medium", "low"]  # Fuzzy match is medium/low confidence
+        assert mapping["confidence"] == "medium"
+        assert mapping["method"] == "username"  # Exact match after normalization
     
     def test_fuzzy_name_match(self):
         """Test fuzzy name matching"""
