@@ -201,9 +201,22 @@ class AgentOrchestrator:
             })
         
         elif agent_name == "export":
-            inputs.update({
-                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/export")
-            })
+            # Extract project_id from discovered projects
+            discovered = self.shared_context.get("discovered_projects", [])
+            if discovered:
+                # Take first project (TODO: support multi-project or user selection)
+                first_project = discovered[0]
+                inputs.update({
+                    "project_id": first_project["id"],
+                    "gitlab_url": config.get("gitlab_url"),
+                    "gitlab_token": config.get("gitlab_token"),
+                    "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/export")
+                })
+            else:
+                # No projects discovered, still update output_dir
+                inputs.update({
+                    "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/export")
+                })
         
         elif agent_name == "transform":
             inputs.update({
