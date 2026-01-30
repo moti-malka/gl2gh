@@ -109,8 +109,9 @@ async def test_test_gitlab_connection_network_error():
         with patch("app.api.connections.GitLabClient") as mock_client_class:
             mock_client = AsyncMock()
             
-            # Simulate network error
-            error = httpx.RequestError("Connection timeout")
+            # Simulate network error - need to create a mock request for RequestError
+            mock_request = MagicMock()
+            error = httpx.RequestError("Connection timeout", request=mock_request)
             mock_client.get_current_user = AsyncMock(side_effect=error)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -129,6 +130,47 @@ async def test_test_gitlab_connection_network_error():
             
             assert response.valid is False
             assert "Connection failed" in response.error
+
+
+@pytest.mark.asyncio
+async def test_test_gitlab_connection_insufficient_permissions():
+    """Test GitLab connection test with insufficient permissions (403)"""
+    from app.api.connections import test_gitlab_connection, GitLabTestRequest
+    
+    mock_user = MagicMock()
+    mock_user.id = ObjectId()
+    mock_user.role = "operator"
+    mock_project_id = str(ObjectId())
+    
+    with patch("app.api.connections.check_project_access", new_callable=AsyncMock) as mock_check:
+        mock_check.return_value = None
+        
+        with patch("app.api.connections.GitLabClient") as mock_client_class:
+            mock_client = AsyncMock()
+            
+            # Simulate 403 error
+            mock_response = AsyncMock()
+            mock_response.status_code = 403
+            error = httpx.HTTPStatusError("Forbidden", request=AsyncMock(), response=mock_response)
+            mock_client.get_current_user = AsyncMock(side_effect=error)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_class.return_value = mock_client
+            
+            request = GitLabTestRequest(
+                token="glpat-limited-token",
+                base_url="https://gitlab.com"
+            )
+            
+            response = await test_gitlab_connection(
+                project_id=mock_project_id,
+                request=request,
+                current_user=mock_user
+            )
+            
+            assert response.valid is False
+            assert response.error == "Token does not have required scopes"
+            assert response.user is None
 
 
 @pytest.mark.asyncio
@@ -316,8 +358,9 @@ async def test_test_github_connection_network_error():
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             
-            # Simulate network error
-            error = httpx.RequestError("Connection timeout")
+            # Simulate network error - need to create a mock request for RequestError
+            mock_request = MagicMock()
+            error = httpx.RequestError("Connection timeout", request=mock_request)
             mock_client.get = AsyncMock(side_effect=error)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)

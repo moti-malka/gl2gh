@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import httpx
+import logging
 
 from app.models import User
 from app.services import ConnectionService
@@ -12,6 +13,7 @@ from app.api.utils import check_project_access
 from app.clients.gitlab_client import GitLabClient
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ConnectionCreate(BaseModel):
@@ -184,7 +186,7 @@ async def test_gitlab_connection(
         # Initialize GitLab client with provided credentials
         base_url = request.base_url or "https://gitlab.com"
         
-        async with GitLabClient(base_url, request.token) as client:
+        async with GitLabClient(base_url, request.token, timeout=10) as client:
             # Test connection by getting current user
             user_info = await client.get_current_user()
             
@@ -208,6 +210,7 @@ async def test_gitlab_connection(
         elif e.response.status_code == 403:
             error_detail = "Token does not have required scopes"
         
+        logger.info(f"GitLab connection test failed for project {project_id}: {error_detail}")
         return GitLabTestResponse(
             valid=False,
             error=error_detail
@@ -215,16 +218,18 @@ async def test_gitlab_connection(
         
     except httpx.RequestError as e:
         # Handle network errors
+        logger.warning(f"GitLab connection test network error for project {project_id}: {str(e)}")
         return GitLabTestResponse(
             valid=False,
             error=f"Connection failed: {str(e)}"
         )
         
     except Exception as e:
-        # Handle other errors
+        # Handle other errors - log full error but return generic message
+        logger.error(f"Unexpected error testing GitLab connection for project {project_id}: {str(e)}")
         return GitLabTestResponse(
             valid=False,
-            error=f"Unexpected error: {str(e)}"
+            error="An unexpected error occurred while testing the connection"
         )
 
 
@@ -261,7 +266,14 @@ async def test_github_connection(
             )
             
             if response.status_code == 200:
-                user_data = response.json()
+                try:
+                    user_data = response.json()
+                except Exception as json_error:
+                    logger.error(f"Failed to parse GitHub API response for project {project_id}: {str(json_error)}")
+                    return GitHubTestResponse(
+                        valid=False,
+                        error="Failed to parse API response"
+                    )
                 
                 # Extract rate limit information from headers
                 rate_limit_info = None
@@ -288,6 +300,7 @@ async def test_github_connection(
                 elif response.status_code == 403:
                     error_detail = "Token does not have required permissions"
                 
+                logger.info(f"GitHub connection test failed for project {project_id}: {error_detail}")
                 return GitHubTestResponse(
                     valid=False,
                     error=error_detail
@@ -295,15 +308,17 @@ async def test_github_connection(
                 
     except httpx.RequestError as e:
         # Handle network errors
+        logger.warning(f"GitHub connection test network error for project {project_id}: {str(e)}")
         return GitHubTestResponse(
             valid=False,
             error=f"Connection failed: {str(e)}"
         )
         
     except Exception as e:
-        # Handle other errors
+        # Handle other errors - log full error but return generic message
+        logger.error(f"Unexpected error testing GitHub connection for project {project_id}: {str(e)}")
         return GitHubTestResponse(
             valid=False,
-            error=f"Unexpected error: {str(e)}"
+            error="An unexpected error occurred while testing the connection"
         )
 
