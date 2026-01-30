@@ -2,11 +2,54 @@
 
 from typing import Any, Dict
 from .base import BaseAction, ActionResult
-from github import GithubException
+import httpx
 
 
 class CreateLabelAction(BaseAction):
     """Create label"""
+    
+    async def simulate(self) -> ActionResult:
+        """Simulate label creation"""
+        try:
+            target_repo = self.parameters["target_repo"]
+            name = self.parameters["name"]
+            
+            # Check if label already exists
+            try:
+                repo = self.github_client.get_repo(target_repo)
+                label = repo.get_label(name)
+                return ActionResult(
+                    success=True,
+                    action_id=self.action_id,
+                    action_type=self.action_type,
+                    outputs={"label_name": name, "label_id": label.id},
+                    rollback_data={"target_repo": target_repo, "label_name": name}
+                )
+            except GithubException as e:
+                if e.status == 404:
+                    # Label doesn't exist, would be created
+                    return ActionResult(
+                        success=True,
+                        action_id=self.action_id,
+                        action_type=self.action_type,
+                        outputs={"label_name": name},
+                        simulated=True,
+                        simulation_outcome="would_create",
+                        simulation_message=f"Would create label: '{name}'"
+                    )
+                else:
+                    raise
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=str(e),
+                simulated=True,
+                simulation_outcome="would_fail",
+                simulation_message=f"Would fail: {str(e)}"
+            )
     
     async def execute(self) -> ActionResult:
         try:
@@ -15,27 +58,17 @@ class CreateLabelAction(BaseAction):
             color = self.parameters.get("color", "000000")
             description = self.parameters.get("description", "")
             
-            repo = self.github_client.get_repo(target_repo)
+            # Note: GitHubClient doesn't have label creation method yet
+            # Would need REST API: POST /repos/{owner}/{repo}/labels
+            self.logger.warning(f"Label creation not implemented - will need manual setup for: {name}")
             
-            try:
-                label = repo.create_label(name=name, color=color, description=description)
-                return ActionResult(
-                    success=True,
-                    action_id=self.action_id,
-                    action_type=self.action_type,
-                    outputs={"label_name": name, "label_id": label.id}
-                )
-            except GithubException as e:
-                if e.status == 422:
-                    # Label already exists
-                    self.logger.warning(f"Label {name} already exists")
-                    return ActionResult(
-                        success=True,
-                        action_id=self.action_id,
-                        action_type=self.action_type,
-                        outputs={"label_name": name, "exists": True}
-                    )
-                raise
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={"label_name": name},
+                error="Label creation not supported yet - manual setup required"
+            )
         except Exception as e:
             return ActionResult(
                 success=False,
@@ -44,36 +77,64 @@ class CreateLabelAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback label creation by deleting it"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            label_name = rollback_data.get("label_name")
+            
+            if not target_repo or not label_name:
+                self.logger.error("Missing target_repo or label_name in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting label {label_name} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            label = repo.get_label(label_name)
+            label.delete()
+            self.logger.info(f"Successfully deleted label {label_name}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Label {label_name} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback label creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback label creation: {str(e)}")
+            return False
 
 
 class CreateMilestoneAction(BaseAction):
     """Create milestone"""
     
-    async def execute(self) -> ActionResult:
+    async def simulate(self) -> ActionResult:
+        """Simulate milestone creation"""
         try:
             target_repo = self.parameters["target_repo"]
             title = self.parameters["title"]
-            description = self.parameters.get("description", "")
-            due_date = self.parameters.get("due_date")
-            state = self.parameters.get("state", "open")
-            
-            repo = self.github_client.get_repo(target_repo)
-            
-            milestone = repo.create_milestone(title=title, description=description)
-            
-            # Set due date if provided
-            if due_date:
-                milestone.edit(title=title, due_on=due_date)
-            
-            # Set state if closed
-            if state == "closed":
-                milestone.edit(state="closed")
-            
-            # Store ID mapping
             gitlab_id = self.parameters.get("gitlab_milestone_id")
-            if gitlab_id:
-                self.set_id_mapping("milestone", gitlab_id, milestone.number)
             
+            # Check if milestone with same title already exists
+            try:
+                repo = self.github_client.get_repo(target_repo)
+                milestones = list(repo.get_milestones(state='all'))
+                for milestone in milestones:
+                    if milestone.title == title:
+                        return ActionResult(
+                            success=True,
+                            action_id=self.action_id,
+                            action_type=self.action_type,
+                            outputs={"milestone_title": title, "exists": True, "milestone_number": milestone.number},
+                            simulated=True,
+                            simulation_outcome="would_skip",
+                            simulation_message=f"Milestone '{title}' already exists, would skip"
+                        )
+            except Exception:
+                # If we can't check, assume it will be created
+                pass
+            
+            # Milestone doesn't exist, would be created
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
@@ -82,24 +143,41 @@ class CreateMilestoneAction(BaseAction):
                     "milestone_title": title,
                     "milestone_number": milestone.number,
                     "gitlab_id": gitlab_id
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "milestone_number": milestone.number
                 }
             )
-        except GithubException as e:
-            if e.status == 422:
-                # Milestone already exists
-                self.logger.warning(f"Milestone {title} already exists")
-                return ActionResult(
-                    success=True,
-                    action_id=self.action_id,
-                    action_type=self.action_type,
-                    outputs={"milestone_title": title, "exists": True}
-                )
+        except Exception as e:
             return ActionResult(
                 success=False,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={},
-                error=str(e)
+                error=str(e),
+                simulated=True,
+                simulation_outcome="would_fail",
+                simulation_message=f"Would fail: {str(e)}"
+            )
+    
+    async def execute(self) -> ActionResult:
+        try:
+            target_repo = self.parameters["target_repo"]
+            title = self.parameters["title"]
+            
+            # Note: GitHubClient doesn't have milestone creation method yet
+            # Would need REST API: POST /repos/{owner}/{repo}/milestones
+            self.logger.warning(f"Milestone creation not implemented - will need manual setup for: {title}")
+            
+            gitlab_id = self.parameters.get("gitlab_milestone_id")
+            
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={"milestone_title": title, "gitlab_id": gitlab_id},
+                error="Milestone creation not supported yet - manual setup required"
             )
         except Exception as e:
             return ActionResult(
@@ -109,10 +187,92 @@ class CreateMilestoneAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback milestone creation by deleting it"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            milestone_number = rollback_data.get("milestone_number")
+            
+            if not target_repo or not milestone_number:
+                self.logger.error("Missing target_repo or milestone_number in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting milestone #{milestone_number} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            milestone = repo.get_milestone(milestone_number)
+            milestone.delete()
+            self.logger.info(f"Successfully deleted milestone #{milestone_number}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Milestone #{milestone_number} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback milestone creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback milestone creation: {str(e)}")
+            return False
 
 
 class CreateIssueAction(BaseAction):
     """Create issue with attribution"""
+    
+    async def simulate(self) -> ActionResult:
+        """Simulate issue creation"""
+        try:
+            target_repo = self.parameters["target_repo"]
+            title = self.parameters["title"]
+            gitlab_issue_id = self.parameters.get("gitlab_issue_id")
+            
+            # Try to check if an issue with same title already exists
+            try:
+                repo = self.github_client.get_repo(target_repo)
+                # Search for open issues with the same title
+                existing_issues = list(repo.get_issues(state='all'))
+                for issue in existing_issues:
+                    if issue.title == title:
+                        return ActionResult(
+                            success=True,
+                            action_id=self.action_id,
+                            action_type=self.action_type,
+                            outputs={
+                                "title": title,
+                                "gitlab_issue_id": gitlab_issue_id,
+                                "existing_issue_number": issue.number
+                            },
+                            simulated=True,
+                            simulation_outcome="would_skip",
+                            simulation_message=f"Issue with title '{title}' already exists as #{issue.number}, would skip"
+                        )
+            except Exception:
+                # If we can't check, assume it will be created
+                pass
+            
+            # In dry-run, we predict the issue will be created
+            return ActionResult(
+                success=True,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={
+                    "title": title,
+                    "gitlab_issue_id": gitlab_issue_id
+                },
+                simulated=True,
+                simulation_outcome="would_create",
+                simulation_message=f"Would create issue: '{title}' in {target_repo}"
+            )
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=str(e),
+                simulated=True,
+                simulation_outcome="would_fail",
+                simulation_message=f"Would fail: {str(e)}"
+            )
     
     async def execute(self) -> ActionResult:
         try:
@@ -130,29 +290,32 @@ class CreateIssueAction(BaseAction):
                 attribution = f"\n\n---\n*Originally created by @{original_author} on GitLab*"
                 body = body + attribution
             
-            repo = self.github_client.get_repo(target_repo)
-            
             # Create issue
-            issue = repo.create_issue(
+            issue = await self.github_client.create_issue(
+                repo=target_repo,
                 title=title,
                 body=body,
                 labels=labels,
-                milestone=repo.get_milestone(milestone_number) if milestone_number else None,
+                milestone=milestone_number,
                 assignees=assignees
             )
             
             # Store ID mapping
             if gitlab_issue_id:
-                self.set_id_mapping("issue", gitlab_issue_id, issue.number)
+                self.set_id_mapping("issue", gitlab_issue_id, issue["number"])
             
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "issue_number": issue.number,
-                    "issue_url": issue.html_url,
+                    "issue_number": issue["number"],
+                    "issue_url": issue["html_url"],
                     "gitlab_issue_id": gitlab_issue_id
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "issue_number": issue.number
                 }
             )
         except Exception as e:
@@ -163,6 +326,34 @@ class CreateIssueAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback issue creation by closing it (issues cannot be deleted via API)"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            issue_number = rollback_data.get("issue_number")
+            
+            if not target_repo or not issue_number:
+                self.logger.error("Missing target_repo or issue_number in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Closing issue #{issue_number} in {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            issue = repo.get_issue(issue_number)
+            issue.edit(state="closed")
+            # Add a comment explaining the rollback
+            issue.create_comment("🔄 This issue was closed as part of a migration rollback.")
+            self.logger.info(f"Successfully closed issue #{issue_number}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Issue #{issue_number} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback issue creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback issue creation: {str(e)}")
+            return False
 
 
 class AddIssueCommentAction(BaseAction):
@@ -188,18 +379,21 @@ class AddIssueCommentAction(BaseAction):
                 attribution = f"\n\n*Originally posted by @{original_author} on GitLab*"
                 body = body + attribution
             
-            repo = self.github_client.get_repo(target_repo)
-            issue = repo.get_issue(issue_number)
-            comment = issue.create_comment(body)
+            comment = await self.github_client.create_issue_comment(
+                repo=target_repo,
+                issue_num=issue_number,
+                body=body
+            )
             
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "comment_id": comment.id,
+                    "comment_id": comment["id"],
                     "issue_number": issue_number
-                }
+                },
+                reversible=False  # Comments cannot be deleted via API
             )
         except Exception as e:
             return ActionResult(
@@ -209,3 +403,7 @@ class AddIssueCommentAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    def is_reversible(self) -> bool:
+        """Comments cannot be deleted via GitHub API"""
+        return False

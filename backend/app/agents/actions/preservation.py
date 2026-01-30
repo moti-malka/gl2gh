@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from github import GithubException
 from .base import BaseAction, ActionResult
+import httpx
 
 # GitHub file size limits
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
@@ -124,8 +125,6 @@ class CommitPreservationArtifactsAction(BaseAction):
             artifacts_dir = Path(self.parameters.get("artifacts_dir", "/tmp/migration_artifacts"))
             branch = self.parameters.get("branch", "main")
             
-            repo = self.github_client.get_repo(target_repo)
-            
             # Prepare migration metadata
             id_mappings = self.context.get("id_mappings", {})
             migration_timestamp = datetime.utcnow().isoformat()
@@ -142,6 +141,8 @@ class CommitPreservationArtifactsAction(BaseAction):
             metadata_content = json.dumps(metadata, indent=2)
             metadata_path = ".github/migration/metadata.json"
             
+            # Try to get existing file SHA
+            sha = None
             try:
                 # Try to get existing file
                 existing = repo.get_contents(metadata_path, ref=branch)
@@ -168,6 +169,8 @@ class CommitPreservationArtifactsAction(BaseAction):
             mappings_content = json.dumps(id_mappings, indent=2)
             mappings_path = ".github/migration/id_mappings.json"
             
+            # Try to get existing file SHA
+            sha = None
             try:
                 existing = repo.get_contents(mappings_path, ref=branch)
                 repo.update_file(

@@ -31,6 +31,7 @@ The platform now uses the **actual Microsoft Agent Framework** library from Micr
 - 📎 **Attachment Migration**: Automatically downloads and migrates issue/MR attachments (images, files) to GitHub
 - 📋 **Safe by Default**: Runs in PLAN_ONLY mode - no GitHub writes without explicit confirmation
 - 🔁 **Resumable Operations**: Continue from any failure point
+- ⚡ **Batch Migrations**: Migrate multiple projects in parallel with configurable concurrency
 - 🌐 **Web UI**: Real-time monitoring and control through React interface
 - 📊 **REST API**: Complete API for programmatic control (FastAPI + OpenAPI)
 
@@ -575,6 +576,7 @@ Comprehensive documentation is available:
 
 - **[QUICKSTART.md](QUICKSTART.md)** - 5-minute setup guide
 - **[AZURE_AI_SETUP.md](AZURE_AI_SETUP.md)** - Azure AI setup for MAF integration ⭐ NEW
+- **[BATCH_MIGRATION.md](docs/BATCH_MIGRATION.md)** - Parallel migration guide ⚡ NEW
 - **[README_PLATFORM.md](README_PLATFORM.md)** - Detailed platform overview
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and components
 - **[MICROSOFT_AGENT_FRAMEWORK.md](docs/MICROSOFT_AGENT_FRAMEWORK.md)** - MAF integration guide

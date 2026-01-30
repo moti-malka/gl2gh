@@ -328,6 +328,52 @@ class RunService(BaseService):
             self.logger.error(f"Database error setting artifact root for run {run_id}: {e}")
             return False
     
+    async def update_run_progress(
+        self,
+        run_id: str,
+        current_stage: Optional[str] = None,
+        progress: Optional[Dict[str, Any]] = None
+    ) -> Optional[MigrationRun]:
+        """
+        Update run progress information
+        
+        Args:
+            run_id: Run ID
+            current_stage: Current detailed stage
+            progress: Progress details (e.g., {"percentage": 50, "message": "Processing..."})
+            
+        Returns:
+            Updated run if found, None otherwise
+        """
+        try:
+            if not ObjectId.is_valid(run_id):
+                return None
+            
+            updates = {}
+            
+            if current_stage is not None:
+                updates["current_stage"] = current_stage
+            
+            if progress is not None:
+                updates["progress"] = progress
+            
+            if not updates:
+                return await self.get_run(run_id)
+            
+            result = await self.db[self.COLLECTION].find_one_and_update(
+                {"_id": ObjectId(run_id)},
+                {"$set": updates},
+                return_document=True
+            )
+            
+            if result:
+                return MigrationRun(**result)
+            return None
+            
+        except PyMongoError as e:
+            self.logger.error(f"Database error updating run progress {run_id}: {e}")
+            return None
+    
     async def ensure_indexes(self):
         """Create necessary indexes for runs collection"""
         try:
