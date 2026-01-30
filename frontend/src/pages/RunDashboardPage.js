@@ -9,6 +9,8 @@ import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
 import { ProjectSelectionPanel } from '../components/ProjectSelectionPanel';
 import { CheckpointPanel } from '../components/CheckpointPanel';
+import { ComponentInventory } from '../components/ComponentInventory';
+import { ComponentSelector } from '../components/ComponentSelector';
 import './RunDashboardPage.css';
 
 export const RunDashboardPage = () => {
@@ -24,6 +26,13 @@ export const RunDashboardPage = () => {
   const [connectionMethod, setConnectionMethod] = useState(null);
   const [summary, setSummary] = useState(null);
   const [artifacts, setArtifacts] = useState([]);
+  
+  // Component inventory and selection
+  const [inventory, setInventory] = useState(null);
+  const [showComponentSelector, setShowComponentSelector] = useState(false);
+  const [componentSelection, setComponentSelection] = useState(null);
+  const [loadingInventory, setLoadingInventory] = useState(false);
+  
   const toast = useToast();
 
   const loadDiscoveryResults = useCallback(async () => {
@@ -87,6 +96,45 @@ export const RunDashboardPage = () => {
       setLoading(false);
     }
   }, [runId, toast]);
+
+  const loadInventory = useCallback(async () => {
+    if (loadingInventory) return;
+    setLoadingInventory(true);
+    try {
+      const response = await runsAPI.getInventory(runId);
+      setInventory(response.data);
+    } catch (error) {
+      console.debug('Inventory not available:', error.response?.status);
+    } finally {
+      setLoadingInventory(false);
+    }
+  }, [runId, loadingInventory]);
+
+  const loadComponentSelection = useCallback(async () => {
+    try {
+      const response = await runsAPI.getComponentSelection(runId);
+      setComponentSelection(response.data);
+    } catch (error) {
+      console.debug('Component selection not available:', error.response?.status);
+    }
+  }, [runId]);
+
+  const handleComponentSelectionChange = (newSelection) => {
+    setComponentSelection(newSelection);
+  };
+
+  const handleSaveComponentSelection = async () => {
+    try {
+      await runsAPI.saveComponentSelection(runId, componentSelection);
+      toast.success('Component selection saved');
+      setShowComponentSelector(false);
+      // Continue to plan generation or next step
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to save component selection:', error);
+      toast.error('Failed to save component selection');
+    }
+  };
 
   const handleProjectSelectionContinue = async (selections) => {
     try {
