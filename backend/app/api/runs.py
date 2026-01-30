@@ -491,147 +491,104 @@ async def verify_run(
         )
 
 
-@router.get("/runs/{run_id}/report")
-async def get_migration_report(
+@router.post("/runs/{run_id}/rollback")
+async def rollback_run(
     run_id: str,
-    format: str = Query("json", enum=["json", "markdown", "html"]),
     current_user: User = Depends(require_operator)
 ):
-    """
-    Generate comprehensive migration summary report
-    
-    Args:
-        run_id: The migration run ID
-        format: Output format (json, markdown, html)
-        
-    Returns:
-        Migration report in the specified format
-    """
+    """Rollback all actions from a failed or partially completed migration"""
     run = await check_run_access(run_id, current_user)
     
-    try:
-        # Get database instance following the same pattern as other services
-        from app.db import get_database
-        db = await get_database()
-        
-        generator = MigrationReportGenerator(db)
-        report = await generator.generate(run_id, format)
-        
-        # For JSON format, return as-is
-        if format == "json":
-            return report
-        
-        # For markdown and html, return with appropriate content type
-        from fastapi.responses import PlainTextResponse, HTMLResponse
-        
-        if format == "markdown":
-            return PlainTextResponse(
-                content=report["content"],
-                media_type="text/markdown"
-            )
-        elif format == "html":
-            return HTMLResponse(
-                content=report["content"]
-            )
-            
-    except ValueError as e:
+    # Validate that rollback is appropriate for this run
+    if run.status not in ["FAILED", "COMPLETED"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"Cannot rollback run with status {run.status}. Only FAILED or COMPLETED runs can be rolled back."
         )
+    
+    # Check for executed_actions.json artifact
+    artifact_service = ArtifactService()
+    
+    if not run.artifact_root:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run has no artifact root configured"
+        )
+    
+    # Look for executed_actions.json file
+    executed_actions_path = Path(run.artifact_root) / "apply" / "executed_actions.json"
+    
+    if not executed_actions_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No executed actions found for this run. The run may not have reached the apply stage."
+        )
+    
+    try:
+        # Initialize ApplyAgent and GitHub client
+        from app.agents.apply_agent import ApplyAgent
+        from app.services.connection_service import ConnectionService
+        from github import Github
+        
+        connection_service = ConnectionService()
+        project_service = ProjectService()
+        
+        # Get project to fetch GitHub token
+        project = await project_service.get_project(str(run.project_id))
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Fetch GitHub connection and get decrypted token
+        github_conn = await connection_service.get_connection_by_type(str(run.project_id), "github")
+        if not github_conn:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="GitHub connection not found for this project"
+            )
+        
+        github_token = await connection_service.get_decrypted_token(str(github_conn.id), str(run.project_id))
+        if not github_token:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve GitHub token"
+            )
+        
+        # Initialize GitHub client and apply agent
+        github_client = Github(github_token)
+        apply_agent = ApplyAgent()
+        apply_agent.github_client = github_client
+        apply_agent.execution_context = {
+            "github_token": github_token,
+            "output_dir": str(run.artifact_root)
+        }
+        
+        # Perform rollback
+        rollback_result = await apply_agent.rollback_migration(str(executed_actions_path))
+        
+        # Save rollback report
+        rollback_report_path = Path(run.artifact_root) / "apply" / "rollback_report.json"
+        rollback_report_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(rollback_report_path, 'w') as f:
+            json.dump({
+                **rollback_result,
+                "timestamp": datetime.utcnow().isoformat(),
+                "run_id": run_id
+            }, f, indent=2)
+        
+        return {
+            "message": "Rollback completed",
+            "run_id": run_id,
+            **rollback_result
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error generating report for run {run_id}: {e}")
+        logger.error(f"Rollback failed for run {run_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate report: {str(e)}"
+            detail=f"Rollback failed: {str(e)}"
         )
-@router.get("/runs/{run_id}/progress")
-async def get_run_progress(
-    run_id: str,
-    current_user: User = Depends(require_operator)
-):
-    """
-    Get current run progress (REST polling fallback)
-    
-    This endpoint provides a REST-based fallback for clients that cannot
-    use WebSocket or SSE connections. Clients can poll this endpoint to
-    get the latest run progress.
-    """
-    run = await check_run_access(run_id, current_user)
-    
-    return {
-        "run_id": str(run.id),
-        "status": run.status,
-        "stage": run.stage,
-        "current_stage": run.current_stage,
-        "progress": run.progress,
-        "stats": run.stats.model_dump(),
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-        "error": run.error
-    }
-
-
-@router.get("/runs/{run_id}/stream")
-async def run_events_stream(
-    run_id: str,
-    current_user: User = Depends(require_operator)
-):
-    """
-    SSE stream for run progress (WebSocket alternative)
-    
-    This endpoint provides Server-Sent Events as an alternative to WebSocket
-    for real-time updates. It's more reliable on unstable networks and
-    doesn't require special protocol support.
-    """
-    # Check access first
-    await check_run_access(run_id, current_user)
-    
-    async def event_generator():
-        """Generate SSE events for this run"""
-        # Subscribe to updates for this run
-        queue = await sse_manager.subscribe(run_id)
-        
-        try:
-            # Send initial connection message
-            run_service = RunService()
-            run = await run_service.get_run(run_id)
-            if run:
-                initial_data = {
-                    "run_id": str(run.id),
-                    "status": run.status,
-                    "stage": run.stage,
-                    "current_stage": run.current_stage,
-                    "progress": run.progress,
-                    "stats": run.stats.model_dump(),
-                    "started_at": run.started_at.isoformat() if run.started_at else None,
-                    "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-                }
-                yield {
-                    "event": "connected",
-                    "data": json.dumps(initial_data)
-                }
-            
-            # Stream updates from the queue
-            while True:
-                try:
-                    # Wait for updates with timeout to send keepalive
-                    update = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    yield {
-                        "event": "run_update",
-                        "data": json.dumps(update)
-                    }
-                except asyncio.TimeoutError:
-                    # Send keepalive comment to keep connection alive
-                    yield {
-                        "event": "keepalive",
-                        "data": json.dumps({"timestamp": datetime.utcnow().isoformat()})
-                    }
-        except asyncio.CancelledError:
-            # Client disconnected
-            logger.info(f"SSE client disconnected from run {run_id}")
-        finally:
-            # Clean up subscription
-            await sse_manager.unsubscribe(run_id, queue)
-    
-    return EventSourceResponse(event_generator())

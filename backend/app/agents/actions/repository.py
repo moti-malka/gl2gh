@@ -110,9 +110,13 @@ class CreateRepositoryAction(BaseAction):
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "repo_full_name": repo["full_name"],
-                    "repo_url": repo["html_url"],
-                    "repo_id": repo["id"]
+                    "repo_full_name": repo.full_name,
+                    "repo_url": repo.html_url,
+                    "repo_id": repo.id
+                },
+                rollback_data={
+                    "repo_full_name": repo.full_name,
+                    "repo_id": repo.id
                 }
             )
         except httpx.HTTPStatusError as e:
@@ -140,6 +144,30 @@ class CreateRepositoryAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback repository creation by deleting it"""
+        try:
+            repo_full_name = rollback_data.get("repo_full_name")
+            if not repo_full_name:
+                self.logger.error("No repo_full_name in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting repository {repo_full_name}")
+            repo = self.github_client.get_repo(repo_full_name)
+            repo.delete()
+            self.logger.info(f"Successfully deleted repository {repo_full_name}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                # Repository already deleted or doesn't exist
+                self.logger.warning(f"Repository {repo_full_name} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback repository creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback repository creation: {str(e)}")
+            return False
 
 
 class PushCodeAction(BaseAction):
@@ -203,7 +231,8 @@ class PushCodeAction(BaseAction):
                     success=True,
                     action_id=self.action_id,
                     action_type=self.action_type,
-                    outputs={"pushed": True, "target_repo": target_repo}
+                    outputs={"pushed": True, "target_repo": target_repo},
+                    reversible=False  # Code push cannot be reversed
                 )
             finally:
                 # Cleanup temp directory
@@ -231,6 +260,10 @@ class PushCodeAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    def is_reversible(self) -> bool:
+        """Code push cannot be reversed - history is permanent"""
+        return False
 
 
 class PushLFSAction(BaseAction):

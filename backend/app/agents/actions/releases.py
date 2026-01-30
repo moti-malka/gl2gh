@@ -42,6 +42,10 @@ class CreateReleaseAction(BaseAction):
                     "release_url": release["html_url"],
                     "tag_name": tag_name,
                     "gitlab_release_id": gitlab_release_id
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "release_id": release.id
                 }
             )
         except Exception as e:
@@ -52,6 +56,34 @@ class CreateReleaseAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback release creation by deleting it"""
+        try:
+            from github import GithubException
+            
+            target_repo = rollback_data.get("target_repo")
+            release_id = rollback_data.get("release_id")
+            
+            if not target_repo or not release_id:
+                self.logger.error("Missing target_repo or release_id in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting release {release_id} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            release = repo.get_release(release_id)
+            release.delete_release()
+            self.logger.info(f"Successfully deleted release {release_id}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Release {release_id} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback release creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback release creation: {str(e)}")
+            return False
 
 
 class UploadReleaseAssetAction(BaseAction):
