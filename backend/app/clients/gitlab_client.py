@@ -546,6 +546,63 @@ class GitLabClient:
             packages.append(package)
         return packages
     
+    async def get_package_details(self, project_id: int, package_id: int) -> Dict[str, Any]:
+        """
+        Get detailed information about a package including files.
+        
+        Args:
+            project_id: Project ID
+            package_id: Package ID
+            
+        Returns:
+            Package details with package_files list
+        """
+        response = await self._request("GET", f"projects/{project_id}/packages/{package_id}")
+        return response.json()
+    
+    async def download_package_file(
+        self, 
+        project_id: int, 
+        package_id: int, 
+        package_file_id: int,
+        output_path: Path
+    ) -> bool:
+        """
+        Download a package file from GitLab.
+        
+        Args:
+            project_id: Project ID
+            package_id: Package ID
+            package_file_id: Package file ID
+            output_path: Where to save the downloaded file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Ensure parent directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Rate limiting
+            await self.rate_limiter.wait_if_needed()
+            
+            # Download the file
+            url = f"{self.api_url}/projects/{project_id}/packages/{package_id}/package_files/{package_file_id}"
+            
+            async with self.client.stream("GET", url) as response:
+                response.raise_for_status()
+                
+                with open(output_path, 'wb') as f:
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        f.write(chunk)
+            
+            self.logger.info(f"Downloaded package file to {output_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to download package file: {e}")
+            return False
+    
     # ===== Settings Methods =====
     
     async def list_protected_branches(self, project_id: int) -> List[Dict[str, Any]]:

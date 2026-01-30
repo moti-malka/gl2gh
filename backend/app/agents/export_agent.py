@@ -649,23 +649,132 @@ class ExportAgent(BaseAgent):
         project: Dict[str, Any],
         output_dir: Path
     ) -> Dict[str, Any]:
-        """Export package metadata"""
+        """Export package metadata and download package files"""
         try:
             packages_dir = output_dir / "packages"
             
+            # List all packages
             packages = await self.gitlab_client.list_packages(project_id)
             
+            if not packages:
+                # Save empty list
+                with open(packages_dir / "packages.json", 'w') as f:
+                    json.dump([], f, indent=2)
+                return {"success": True, "count": 0}
+            
+            # Process each package
+            enhanced_packages = []
+            supported_types = {"npm", "maven", "nuget", "pypi", "composer", "conan", "generic", "golang"}
+            total_size = 0
+            downloaded_count = 0
+            
+            for package in packages:
+                package_id = package.get("id")
+                package_name = package.get("name", "unknown")
+                package_type = package.get("package_type", "unknown")
+                package_version = package.get("version", "unknown")
+                
+                self.logger.info(f"Processing package: {package_name}@{package_version} (type: {package_type})")
+                
+                # Get detailed package info including files
+                try:
+                    package_details = await self.gitlab_client.get_package_details(project_id, package_id)
+                    package_files = package_details.get("package_files", [])
+                    
+                    # Create directory for this package
+                    package_subdir = packages_dir / f"{package_type}" / package_name / package_version
+                    package_subdir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Download each file
+                    downloaded_files = []
+                    for pkg_file in package_files:
+                        file_id = pkg_file.get("id")
+                        file_name = pkg_file.get("file_name", f"file_{file_id}")
+                        file_size = pkg_file.get("size", 0)
+                        
+                        # Download file
+                        output_path = package_subdir / file_name
+                        success = await self.gitlab_client.download_package_file(
+                            project_id, package_id, file_id, output_path
+                        )
+                        
+                        if success:
+                            downloaded_files.append({
+                                "file_name": file_name,
+                                "size": file_size,
+                                "local_path": str(output_path.relative_to(output_dir))
+                            })
+                            total_size += file_size
+                            downloaded_count += 1
+                            self.logger.info(f"  Downloaded: {file_name} ({file_size} bytes)")
+                    
+                    # Add enhanced package info
+                    enhanced_packages.append({
+                        "id": package_id,
+                        "name": package_name,
+                        "version": package_version,
+                        "package_type": package_type,
+                        "supported": package_type in supported_types,
+                        "files": downloaded_files,
+                        "created_at": package.get("created_at"),
+                        "original_metadata": package
+                    })
+                    
+                except Exception as e:
+                    self.logger.warning(f"Failed to process package {package_name}: {e}")
+                    # Still add metadata even if download failed
+                    enhanced_packages.append({
+                        "id": package_id,
+                        "name": package_name,
+                        "version": package_version,
+                        "package_type": package_type,
+                        "supported": package_type in supported_types,
+                        "files": [],
+                        "download_error": str(e),
+                        "created_at": package.get("created_at"),
+                        "original_metadata": package
+                    })
+            
+            # Save enhanced package metadata
             with open(packages_dir / "packages.json", 'w') as f:
-                json.dump(packages, f, indent=2)
+                json.dump(enhanced_packages, f, indent=2)
+            
+            # Generate inventory report
+            inventory = {
+                "total_packages": len(enhanced_packages),
+                "downloaded_files": downloaded_count,
+                "total_size_bytes": total_size,
+                "by_type": {},
+                "supported_count": sum(1 for p in enhanced_packages if p.get("supported")),
+                "unsupported_count": sum(1 for p in enhanced_packages if not p.get("supported"))
+            }
+            
+            # Count by type
+            for package in enhanced_packages:
+                pkg_type = package.get("package_type", "unknown")
+                if pkg_type not in inventory["by_type"]:
+                    inventory["by_type"][pkg_type] = {"count": 0, "supported": pkg_type in supported_types}
+                inventory["by_type"][pkg_type]["count"] += 1
+            
+            with open(packages_dir / "inventory.json", 'w') as f:
+                json.dump(inventory, f, indent=2)
+            
+            self.logger.info(
+                f"Package export complete: {len(enhanced_packages)} packages, "
+                f"{downloaded_count} files, {total_size / (1024*1024):.2f} MB"
+            )
             
             return {
                 "success": True,
-                "count": len(packages)
+                "count": len(enhanced_packages),
+                "downloaded_files": downloaded_count,
+                "total_size": total_size
             }
             
         except Exception as e:
             # Packages might not be available in all GitLab editions
-            return {"success": True, "count": 0}
+            self.logger.warning(f"Package export failed: {e}")
+            return {"success": True, "count": 0, "error": str(e)}
     
     async def _export_settings(
         self,
