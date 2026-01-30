@@ -1,5 +1,6 @@
 """Repository-related actions"""
 
+import json
 from typing import Any, Dict
 from pathlib import Path
 import subprocess
@@ -187,6 +188,7 @@ class PushLFSAction(BaseAction):
             lfs_objects_path = Path(self.parameters["lfs_objects_path"])
             target_repo = self.parameters["target_repo"]
             
+            # Check if LFS objects exist
             if not lfs_objects_path.exists():
                 return ActionResult(
                     success=True,
@@ -195,15 +197,135 @@ class PushLFSAction(BaseAction):
                     outputs={"skipped": True, "reason": "No LFS objects found"}
                 )
             
-            # Note: LFS push would require more complex handling
-            # This is a placeholder implementation
-            self.logger.warning("LFS push not fully implemented yet")
+            # Check if manifest exists
+            manifest_path = lfs_objects_path / "manifest.json"
+            if not manifest_path.exists():
+                return ActionResult(
+                    success=True,
+                    action_id=self.action_id,
+                    action_type=self.action_type,
+                    outputs={"skipped": True, "reason": "No LFS manifest found"}
+                )
             
+            # Read manifest
+            with open(manifest_path, 'r') as f:
+                manifest = json.load(f)
+            
+            lfs_count = manifest.get("total_count", 0)
+            if lfs_count == 0:
+                return ActionResult(
+                    success=True,
+                    action_id=self.action_id,
+                    action_type=self.action_type,
+                    outputs={"skipped": True, "reason": "No LFS objects to push"}
+                )
+            
+            self.logger.info(f"Pushing {lfs_count} LFS objects to {target_repo}")
+            
+            # Get repository
+            repo = self.github_client.get_repo(target_repo)
+            clone_url = repo.clone_url
+            
+            # Create temp directory for LFS push using tempfile for security
+            temp_dir = Path(tempfile.mkdtemp(prefix="gl2gh_lfs_"))
+            
+            try:
+                # Clone repository (we need a full clone for LFS, not bare)
+                token = self.context.get("github_token")
+                auth_url = clone_url.replace("https://", f"https://x-access-token:{token}@")
+                
+                subprocess.run(
+                    ["git", "clone", auth_url, str(temp_dir)],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Install Git LFS in the repository
+                subprocess.run(
+                    ["git", "lfs", "install"],
+                    cwd=temp_dir,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Copy LFS objects to the cloned repository
+                lfs_storage_src = lfs_objects_path / "objects"
+                if lfs_storage_src.exists():
+                    lfs_storage_dst = temp_dir / ".git" / "lfs" / "objects"
+                    lfs_storage_dst.mkdir(parents=True, exist_ok=True)
+                    
+                    # Copy all LFS objects
+                    import shutil
+                    for item in lfs_storage_src.iterdir():
+                        if item.is_dir():
+                            dst_path = lfs_storage_dst / item.name
+                            if dst_path.exists():
+                                shutil.rmtree(dst_path)
+                            shutil.copytree(item, dst_path)
+                        else:
+                            shutil.copy2(item, lfs_storage_dst / item.name)
+                
+                # Push all LFS objects to GitHub
+                self.logger.info("Pushing LFS objects to GitHub...")
+                result = subprocess.run(
+                    ["git", "lfs", "push", "--all", "origin"],
+                    cwd=temp_dir,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=600  # 10 minutes for large LFS files
+                )
+                
+                self.logger.info(f"Successfully pushed {lfs_count} LFS objects")
+                
+                return ActionResult(
+                    success=True,
+                    action_id=self.action_id,
+                    action_type=self.action_type,
+                    outputs={
+                        "lfs_configured": True,
+                        "target_repo": target_repo,
+                        "objects_pushed": lfs_count,
+                        "total_size": manifest.get("total_size", 0)
+                    }
+                )
+            finally:
+                # Cleanup temp directory
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    
+        except subprocess.TimeoutExpired as e:
+            error_msg = f"LFS push timed out: {e.cmd[0] if e.cmd else 'unknown'}"
             return ActionResult(
-                success=True,
+                success=False,
                 action_id=self.action_id,
                 action_type=self.action_type,
-                outputs={"lfs_configured": True, "target_repo": target_repo}
+                outputs={},
+                error=error_msg
+            )
+        except subprocess.CalledProcessError as e:
+            # Redact token from error messages
+            error_msg = str(e.stderr if e.stderr else str(e))
+            token = self.context.get("github_token", "")
+            if token:
+                error_msg = error_msg.replace(token, "***REDACTED***")
+            
+            # Check for common LFS errors
+            if "quota" in error_msg.lower() or "storage" in error_msg.lower():
+                error_msg = f"LFS quota/storage error: {error_msg}"
+            elif "authentication" in error_msg.lower():
+                error_msg = f"LFS authentication error: {error_msg}"
+            else:
+                error_msg = f"LFS push failed: {error_msg}"
+            
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=error_msg
             )
         except Exception as e:
             return ActionResult(

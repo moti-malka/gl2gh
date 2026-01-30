@@ -338,21 +338,26 @@ class ExportAgent(BaseAgent):
                 except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
                     pass  # No submodules or error reading them
                 
-                # Check for LFS
+                # Check for LFS and export if present
                 has_lfs = await self.gitlab_client.has_lfs(project_id)
+                lfs_result = None
                 if has_lfs:
-                    lfs_info = repo_dir / "lfs_detected.txt"
-                    with open(lfs_info, 'w') as f:
-                        f.write("Git LFS detected. LFS objects need to be fetched separately.\n")
+                    self.log_event("INFO", "Git LFS detected, fetching objects...")
+                    lfs_result = await self._export_lfs_objects(project_id, repo_dir, temp_dir)
                 
                 # Build artifacts list safely
                 artifacts = [str(bundle_path.relative_to(output_dir.parent))]
-                if has_lfs:
-                    artifacts.append(str((repo_dir / "lfs_detected.txt").relative_to(output_dir.parent)))
+                if has_lfs and lfs_result and lfs_result.get("success"):
+                    # Add LFS manifest to artifacts
+                    lfs_manifest = repo_dir / "lfs" / "manifest.json"
+                    if lfs_manifest.exists():
+                        artifacts.append(str(lfs_manifest.relative_to(output_dir.parent)))
                 
                 return {
                     "success": True,
-                    "artifacts": artifacts
+                    "artifacts": artifacts,
+                    "has_lfs": has_lfs,
+                    "lfs_objects_count": lfs_result.get("count", 0) if lfs_result else 0
                 }
                 
             finally:
@@ -369,6 +374,195 @@ class ExportAgent(BaseAgent):
             return {"success": False, "error": f"Git command failed: {error}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    async def _export_lfs_objects(
+        self,
+        project_id: int,
+        repo_dir: Path,
+        temp_clone_dir: Path
+    ) -> Dict[str, Any]:
+        """Export Git LFS objects from repository
+        
+        Args:
+            project_id: GitLab project ID
+            repo_dir: Directory where repository export is stored
+            temp_clone_dir: Temporary clone directory
+            
+        Returns:
+            Dict with success status, count of objects, and total size
+        """
+        try:
+            lfs_dir = repo_dir / "lfs"
+            lfs_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Get list of LFS objects from the cloned repository
+            lfs_objects = await self._get_lfs_object_list(temp_clone_dir)
+            
+            if not lfs_objects:
+                self.log_event("INFO", "No LFS objects found in repository")
+                return {"success": True, "count": 0, "total_size": 0}
+            
+            self.log_event("INFO", f"Found {len(lfs_objects)} LFS objects")
+            
+            # Fetch all LFS objects using git lfs fetch
+            try:
+                # First, ensure LFS is initialized
+                subprocess.run(
+                    ['git', 'lfs', 'install'],
+                    cwd=temp_clone_dir,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                # Fetch all LFS objects
+                self.log_event("INFO", "Fetching LFS objects...")
+                result = subprocess.run(
+                    ['git', 'lfs', 'fetch', '--all'],
+                    cwd=temp_clone_dir,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=600  # 10 minutes for large LFS files
+                )
+                
+                # Copy LFS objects from .git/lfs to export directory
+                lfs_storage = temp_clone_dir / '.git' / 'lfs' / 'objects'
+                if lfs_storage.exists():
+                    dest_lfs_storage = lfs_dir / 'objects'
+                    dest_lfs_storage.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(lfs_storage, dest_lfs_storage, dirs_exist_ok=True)
+                
+                # Calculate total size and create manifest
+                total_size = 0
+                for obj in lfs_objects:
+                    total_size += obj.get("size", 0)
+                
+                manifest = {
+                    "objects": lfs_objects,
+                    "total_count": len(lfs_objects),
+                    "total_size": total_size,
+                    "exported_at": datetime.now().isoformat()
+                }
+                
+                # Write manifest
+                manifest_path = lfs_dir / "manifest.json"
+                with open(manifest_path, 'w') as f:
+                    json.dump(manifest, f, indent=2)
+                
+                self.log_event("INFO", f"Exported {len(lfs_objects)} LFS objects ({total_size} bytes)")
+                
+                return {
+                    "success": True,
+                    "count": len(lfs_objects),
+                    "total_size": total_size
+                }
+                
+            except subprocess.CalledProcessError as e:
+                error = self._sanitize_error_message(str(e.stderr), self.gitlab_client.token)
+                self.log_event("ERROR", f"Failed to fetch LFS objects: {error}")
+                return {"success": False, "error": f"LFS fetch failed: {error}"}
+                
+        except Exception as e:
+            self.log_event("ERROR", f"Error exporting LFS objects: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    async def _get_lfs_object_list(self, repo_path: Path) -> List[Dict[str, Any]]:
+        """Get list of LFS objects in repository
+        
+        Args:
+            repo_path: Path to git repository
+            
+        Returns:
+            List of LFS object metadata dictionaries
+        """
+        try:
+            # Use git lfs ls-files to get list of LFS files
+            result = subprocess.run(
+                ['git', 'lfs', 'ls-files', '--long', '--all'],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                return []
+            
+            # Parse output
+            # Format: <OID> - <filename> (<size>)
+            # Example: 3a3e5c5e1... - path/to/file.bin (1234 B)
+            lfs_objects = []
+            for line in result.stdout.strip().split('\n'):
+                if not line.strip():
+                    continue
+                    
+                try:
+                    # Parse line format: "OID - path (size)"
+                    parts = line.split(' - ')
+                    if len(parts) >= 2:
+                        oid = parts[0].strip()
+                        rest = ' - '.join(parts[1:])
+                        
+                        # Extract path and size
+                        if '(' in rest and ')' in rest:
+                            path = rest[:rest.rfind('(')].strip()
+                            size_str = rest[rest.rfind('(') + 1:rest.rfind(')')].strip()
+                            
+                            # Parse size (can be in B, KB, MB, GB)
+                            size_bytes = self._parse_size(size_str)
+                            
+                            lfs_objects.append({
+                                "oid": oid,
+                                "path": path,
+                                "size": size_bytes,
+                                "size_str": size_str
+                            })
+                except Exception as e:
+                    self.log_event("WARNING", f"Failed to parse LFS line: {line} - {str(e)}")
+                    continue
+            
+            return lfs_objects
+            
+        except subprocess.TimeoutExpired:
+            self.log_event("WARNING", "git lfs ls-files timed out")
+            return []
+        except Exception as e:
+            self.log_event("WARNING", f"Failed to get LFS object list: {str(e)}")
+            return []
+    
+    def _parse_size(self, size_str: str) -> int:
+        """Parse size string to bytes
+        
+        Args:
+            size_str: Size string like "1.5 MB" or "1234 B"
+            
+        Returns:
+            Size in bytes
+        """
+        size_str = size_str.strip().upper()
+        
+        # Extract number and unit
+        parts = size_str.split()
+        if len(parts) != 2:
+            return 0
+        
+        try:
+            value = float(parts[0])
+            unit = parts[1]
+            
+            multipliers = {
+                'B': 1,
+                'KB': 1024,
+                'MB': 1024 * 1024,
+                'GB': 1024 * 1024 * 1024,
+                'TB': 1024 * 1024 * 1024 * 1024
+            }
+            
+            return int(value * multipliers.get(unit, 1))
+        except (ValueError, IndexError):
+            return 0
     
     async def _export_ci_cd(
         self,
