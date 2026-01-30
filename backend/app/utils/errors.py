@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import httpx
 
 
@@ -158,7 +158,7 @@ def create_gitlab_error(exception: Exception, project_path: Optional[str] = None
         # 429 Rate Limited
         elif status_code == 429:
             retry_after = int(exception.response.headers.get('Retry-After', 60))
-            retry_time = datetime.utcnow() + timedelta(seconds=retry_after)
+            retry_time = datetime.now(timezone.utc) + timedelta(seconds=retry_after)
             wait_minutes = retry_after // 60
             wait_seconds = retry_after % 60
             
@@ -263,8 +263,8 @@ def create_github_error(exception: Exception, resource: Optional[str] = None) ->
             if 'rate limit' in str(exception).lower():
                 retry_after = int(exception.response.headers.get('X-RateLimit-Reset', 0))
                 if retry_after:
-                    retry_time = datetime.fromtimestamp(retry_after)
-                    wait_seconds = max(0, (retry_time - datetime.utcnow()).total_seconds())
+                    retry_time = datetime.fromtimestamp(retry_after, tz=timezone.utc)
+                    wait_seconds = max(0, (retry_time - datetime.now(timezone.utc)).total_seconds())
                     wait_minutes = int(wait_seconds // 60)
                     
                     wait_time_str = f"{wait_minutes} minutes" if wait_minutes > 0 else f"{int(wait_seconds)} seconds"

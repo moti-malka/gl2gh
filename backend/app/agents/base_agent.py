@@ -125,7 +125,6 @@ class BaseAgent(ABC):
                 migration_error = create_gitlab_error(exception, context)
         else:
             # Generic error - create a simple MigrationError
-            from app.utils.errors import MigrationError
             migration_error = MigrationError(
                 category="unknown",
                 code="AGENT_ERROR_001",

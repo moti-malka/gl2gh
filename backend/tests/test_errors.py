@@ -2,7 +2,7 @@
 
 import pytest
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.utils.errors import (
     MigrationError,
     create_gitlab_error,
@@ -36,7 +36,7 @@ class TestMigrationError:
     
     def test_to_dict_with_retry_after(self):
         """Test conversion to dictionary with retry_after"""
-        retry_time = datetime.utcnow() + timedelta(seconds=60)
+        retry_time = datetime.now(timezone.utc) + timedelta(seconds=60)
         error = MigrationError(
             category="rate_limit",
             code="TEST_002",
@@ -168,7 +168,7 @@ class TestGitHubErrorCreation:
     
     def test_403_rate_limit(self):
         """Test 403 Rate Limit error"""
-        headers = {"X-RateLimit-Reset": str(int((datetime.utcnow() + timedelta(minutes=15)).timestamp()))}
+        headers = {"X-RateLimit-Reset": str(int((datetime.now(timezone.utc) + timedelta(minutes=15)).timestamp()))}
         response = httpx.Response(403, headers=headers, text="rate limit exceeded")
         exception = httpx.HTTPStatusError("403", request=None, response=response)
         
