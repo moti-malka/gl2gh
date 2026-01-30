@@ -26,6 +26,7 @@ class MigrationMode(str, Enum):
     APPLY = "APPLY"
     VERIFY = "VERIFY"
     FULL = "FULL"
+    SINGLE_PROJECT = "SINGLE_PROJECT"  # New mode for quick migrate
 
 
 class AgentOrchestrator:
@@ -163,7 +164,8 @@ class AgentOrchestrator:
             MigrationMode.PLAN_ONLY: ["discovery", "export", "transform", "plan"],
             MigrationMode.APPLY: ["discovery", "export", "transform", "plan", "apply"],
             MigrationMode.VERIFY: ["verify"],
-            MigrationMode.FULL: full_sequence
+            MigrationMode.FULL: full_sequence,
+            MigrationMode.SINGLE_PROJECT: ["export", "transform", "plan"]  # Skip discovery for single project
         }
         
         sequence = sequences.get(mode, full_sequence)

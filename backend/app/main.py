@@ -8,7 +8,7 @@ import socketio
 from app.config import settings
 from app.db import connect_to_mongo, close_mongo_connection
 from app.utils.logging import setup_logging, get_logger
-from app.api import auth, projects, connections, runs, events
+from app.api import auth, projects, connections, runs, events, migrate
 
 logger = get_logger(__name__)
 
@@ -48,6 +48,7 @@ app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects",
 app.include_router(connections.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["connections"])
 app.include_router(runs.router, prefix=f"{settings.API_V1_PREFIX}", tags=["runs"])
 app.include_router(events.router, prefix=f"{settings.API_V1_PREFIX}/runs", tags=["events"])
+app.include_router(migrate.router, prefix=f"{settings.API_V1_PREFIX}", tags=["migrate"])
 
 
 @app.get("/")

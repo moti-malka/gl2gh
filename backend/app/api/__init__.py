@@ -1,5 +1,5 @@
 """API package - REST endpoints"""
 
-from . import auth, projects, connections, runs, events
+from . import auth, projects, connections, runs, events, migrate
 
-__all__ = ['auth', 'projects', 'connections', 'runs', 'events']
+__all__ = ['auth', 'projects', 'connections', 'runs', 'events', 'migrate']
