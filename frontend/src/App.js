@@ -9,6 +9,9 @@ import { ProfilePage } from './pages/ProfilePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectWizardPage } from './pages/ProjectWizardPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { ConnectionsPage } from './pages/ConnectionsPage';
+import { ProjectSettingsPage } from './pages/ProjectSettingsPage';
+import { RunsListPage } from './pages/RunsListPage';
 import { RunCreationPage } from './pages/RunCreationPage';
 import { RunDashboardPage } from './pages/RunDashboardPage';
 import { UserMappingPage } from './pages/UserMappingPage';
@@ -100,6 +103,30 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <ProjectDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:id/connections"
+            element={
+              <ProtectedRoute>
+                <ConnectionsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:id/settings"
+            element={
+              <ProtectedRoute requireRole="operator">
+                <ProjectSettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/projects/:id/runs"
+            element={
+              <ProtectedRoute>
+                <RunsListPage />
               </ProtectedRoute>
             }
           />
