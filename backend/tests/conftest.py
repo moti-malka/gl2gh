@@ -1,6 +1,7 @@
 """Test configuration and fixtures"""
 
 import pytest
+import pytest_asyncio
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -20,7 +21,7 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def db():
     """Provide test database instance"""
     from app.config import settings
@@ -38,56 +39,56 @@ async def db():
     client.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def user_service(db):
     """Provide UserService instance"""
     from app.services import UserService
     return UserService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def project_service(db):
     """Provide ProjectService instance"""
     from app.services import ProjectService
     return ProjectService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def connection_service(db):
     """Provide ConnectionService instance"""
     from app.services import ConnectionService
     return ConnectionService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def run_service(db):
     """Provide RunService instance"""
     from app.services import RunService
     return RunService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def event_service(db):
     """Provide EventService instance"""
     from app.services import EventService
     return EventService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def artifact_service(db):
     """Provide ArtifactService instance"""
     from app.services import ArtifactService
     return ArtifactService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def user_mapping_service(db):
     """Provide UserMappingService instance"""
     from app.services import UserMappingService
     return UserMappingService(db)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_user(user_service):
     """Create a test user"""
     user = await user_service.create_user(
@@ -99,7 +100,7 @@ async def test_user(user_service):
     return user
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_admin(user_service):
     """Create a test admin user"""
     admin = await user_service.create_user(
@@ -111,7 +112,7 @@ async def test_admin(user_service):
     return admin
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_project(project_service, test_user):
     """Create a test project"""
     project = await project_service.create_project(
