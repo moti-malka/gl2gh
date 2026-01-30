@@ -533,16 +533,21 @@ class TestTransformAgent:
         invalid_inputs = {
             "run_id": "test-run-003",
             "export_data": {"invalid": "data"},
-            "output_dir": "/invalid/path/that/cannot/be/created/with/no/perms"
+            "output_dir": "/tmp/test-invalid-path-for-testing"
         }
         
-        # This should trigger an exception due to permission error
+        # Mock the gap analyzer to raise an exception
+        def mock_transform(*args, **kwargs):
+            raise PermissionError("Permission denied")
+        
+        transform_agent.gap_analyzer.transform = Mock(side_effect=mock_transform)
+        
         result = await transform_agent.execute(invalid_inputs)
         
-        # Should handle the error gracefully
-        assert result["status"] in ["failed", "success"]
-        if result["status"] == "failed":
-            assert len(result["errors"]) > 0
+        # Should handle the error gracefully and return failed status
+        assert result["status"] == "failed"
+        assert len(result["errors"]) > 0
+        assert "Permission denied" in str(result["errors"])
     
     async def test_generate_artifacts(self, transform_agent):
         """Test artifact generation"""
