@@ -246,6 +246,21 @@ class GitLabClient:
                 self.logger.error(f"Error fetching page {page} of {endpoint}: {e}")
                 break
     
+    # ===== User Methods =====
+    
+    async def get_current_user(self) -> Dict[str, Any]:
+        """
+        Get current authenticated user information.
+        
+        Returns:
+            Dictionary containing user information including username, id, email, etc.
+            
+        Raises:
+            httpx.HTTPError: If request fails (e.g., invalid token, network error)
+        """
+        response = await self._request('GET', 'user')
+        return response.json()
+    
     # ===== Project Methods =====
     
     async def list_projects(
