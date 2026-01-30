@@ -661,6 +661,49 @@ class GitLabClient:
         except Exception:
             return False
     
+    # ===== Container Registry Methods =====
+    
+    async def list_registry_repositories(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        List container registry repositories for a project.
+        
+        Args:
+            project_id: Project ID
+            
+        Returns:
+            List of registry repositories with metadata
+        """
+        repositories = []
+        try:
+            async for repo in self.paginated_request(
+                f"projects/{project_id}/registry/repositories"
+            ):
+                repositories.append(repo)
+        except Exception as e:
+            self.logger.warning(f"Could not list registry repositories: {e}")
+        return repositories
+    
+    async def list_registry_tags(self, project_id: int, repository_id: int) -> List[Dict[str, Any]]:
+        """
+        List tags for a container registry repository.
+        
+        Args:
+            project_id: Project ID
+            repository_id: Repository ID from list_registry_repositories
+            
+        Returns:
+            List of tags with metadata (name, digest, size, etc.)
+        """
+        tags = []
+        try:
+            async for tag in self.paginated_request(
+                f"projects/{project_id}/registry/repositories/{repository_id}/tags"
+            ):
+                tags.append(tag)
+        except Exception as e:
+            self.logger.warning(f"Could not list registry tags for repository {repository_id}: {e}")
+        return tags
+    
     # ===== LFS Methods =====
     
     async def has_lfs(self, project_id: int) -> bool:

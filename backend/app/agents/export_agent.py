@@ -12,6 +12,7 @@ from datetime import datetime
 from app.agents.base_agent import BaseAgent, AgentResult
 from app.agents.export_checkpoint import ExportCheckpoint
 from app.clients.gitlab_client import GitLabClient
+from app.clients.registry_client import RegistryClient
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -79,6 +80,7 @@ class ExportAgent(BaseAgent):
             "wiki": {"status": "pending"},
             "releases": {"status": "pending", "count": 0},
             "packages": {"status": "pending", "count": 0},
+            "container_registry": {"status": "pending", "count": 0},
             "settings": {"status": "pending"}
         }
     
@@ -147,6 +149,7 @@ class ExportAgent(BaseAgent):
                 ("wiki", self._export_wiki),
                 ("releases", self._export_releases),
                 ("packages", self._export_packages),
+                ("container_registry", self._export_container_registry),
                 ("settings", self._export_settings)
             ]
             
@@ -376,6 +379,7 @@ class ExportAgent(BaseAgent):
             "releases",
             "releases/assets",
             "packages",
+            "container_registry",
             "settings"
         ]
         
@@ -882,6 +886,164 @@ class ExportAgent(BaseAgent):
         except Exception as e:
             # Packages might not be available in all GitLab editions
             return {"success": True, "count": 0}
+    
+    async def _export_container_registry(
+        self,
+        project_id: int,
+        project: Dict[str, Any],
+        output_dir: Path
+    ) -> Dict[str, Any]:
+        """Export container registry images metadata"""
+        try:
+            registry_dir = output_dir / "container_registry"
+            project_path = project.get('path_with_namespace', str(project_id))
+            
+            # Check if container registry is enabled
+            if not project.get('container_registry_enabled', False):
+                self.log_event("INFO", "Container registry not enabled for this project")
+                with open(registry_dir / "registry_disabled.txt", 'w') as f:
+                    f.write("Container registry is not enabled for this project.\n")
+                return {"success": True, "count": 0}
+            
+            # Initialize registry client
+            registry_client = RegistryClient(self.gitlab_client)
+            
+            # Discover all images and tags
+            self.log_event("INFO", "Discovering container registry images...")
+            images = await registry_client.discover_images(project_id, project_path)
+            
+            if not images:
+                self.log_event("INFO", "No container images found in registry")
+                with open(registry_dir / "no_images.txt", 'w') as f:
+                    f.write("No container images found in the registry.\n")
+                return {"success": True, "count": 0}
+            
+            # Export image metadata
+            metadata_path = registry_dir / "images.json"
+            export_result = registry_client.export_image_metadata(images, metadata_path)
+            
+            # Generate migration script
+            script_path = registry_dir / "migrate_images.sh"
+            registry_client.generate_migration_script(images, script_path)
+            
+            # Create README with instructions
+            readme_path = registry_dir / "README.md"
+            with open(readme_path, 'w') as f:
+                f.write(self._generate_registry_readme(images))
+            
+            total_tags = sum(len(img['tags']) for img in images)
+            self.log_event(
+                "INFO",
+                f"Exported {len(images)} container repositories with {total_tags} tags"
+            )
+            
+            return {
+                "success": True,
+                "count": len(images),
+                "tags": total_tags,
+                "artifacts": [
+                    str(metadata_path.relative_to(output_dir.parent)),
+                    str(script_path.relative_to(output_dir.parent)),
+                    str(readme_path.relative_to(output_dir.parent))
+                ]
+            }
+            
+        except Exception as e:
+            self.log_event("ERROR", f"Failed to export container registry: {e}")
+            # Don't fail the entire export if registry export fails
+            return {"success": False, "error": str(e), "count": 0}
+    
+    def _generate_registry_readme(self, images: List[Dict[str, Any]]) -> str:
+        """Generate README for container registry migration"""
+        total_tags = sum(len(img['tags']) for img in images)
+        
+        readme = f"""# Container Registry Migration
+
+## Summary
+- **Repositories:** {len(images)}
+- **Total Tags:** {total_tags}
+
+## Migration Options
+
+### Option 1: Use the Migration Script (Recommended)
+The `migrate_images.sh` script automates the image migration process.
+
+**Prerequisites:**
+- Docker installed and running
+- GitLab access token with registry read permissions
+- GitHub token with GHCR write permissions
+
+**Steps:**
+1. Set environment variables:
+   ```bash
+   export GITLAB_TOKEN="your_gitlab_token"
+   export GITHUB_TOKEN="your_github_token"
+   export GITHUB_USER="your_github_username"
+   ```
+
+2. Run the migration script:
+   ```bash
+   ./migrate_images.sh
+   ```
+
+### Option 2: Manual Migration
+For each image, run:
+```bash
+# Login to registries
+echo "$GITLAB_TOKEN" | docker login registry.gitlab.com -u oauth2 --password-stdin
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u $GITHUB_USER --password-stdin
+
+# Pull from GitLab
+docker pull registry.gitlab.com/namespace/project/image:tag
+
+# Tag for GitHub
+docker tag registry.gitlab.com/namespace/project/image:tag ghcr.io/owner/repo/image:tag
+
+# Push to GitHub
+docker push ghcr.io/owner/repo/image:tag
+```
+
+### Option 3: Rebuild from Source
+Re-run your CI/CD pipelines with updated registry URLs pointing to GHCR.
+
+## Discovered Images
+
+"""
+        for i, img in enumerate(images, 1):
+            readme += f"\n### {i}. {img['repository_path']}\n"
+            readme += f"- **GitLab URL:** `{img['gitlab_registry_url']}`\n"
+            readme += f"- **Suggested GitHub URL:** `{img['suggested_github_url']}`\n"
+            readme += f"- **Tags:** {len(img['tags'])}\n\n"
+            
+            if img['tags']:
+                readme += "**Tag Details:**\n"
+                for tag in img['tags'][:10]:  # Show first 10 tags
+                    size_mb = tag['total_size'] / (1024 * 1024) if tag['total_size'] else 0
+                    readme += f"- `{tag['name']}` - {size_mb:.2f} MB\n"
+                
+                if len(img['tags']) > 10:
+                    readme += f"- ... and {len(img['tags']) - 10} more tags\n"
+            readme += "\n"
+        
+        readme += """
+## CI/CD Updates Required
+
+Update your CI/CD workflows to use the new GHCR URLs:
+
+### GitLab CI (Before)
+```yaml
+docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+```
+
+### GitHub Actions (After)
+```yaml
+docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+```
+
+See `images.json` for the complete list of images and suggested GHCR URLs.
+"""
+        
+        return readme
     
     async def _export_settings(
         self,
