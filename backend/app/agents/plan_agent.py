@@ -800,8 +800,10 @@ class PlanAgent(BaseAgent):
             # Check for unmapped events
             unmapped_events = webhook.get("unmapped_events", [])
             if unmapped_events:
-                # Add warning about unmapped events
-                pass  # Could log or add to plan metadata
+                # Log unmapped events as metadata for the action
+                self.logger.warning(
+                    f"Webhook {webhook.get('url')} has {len(unmapped_events)} unmapped GitLab events"
+                )
             
             generator.add_action(
                 action_type=ActionType.WEBHOOK_CREATE,
