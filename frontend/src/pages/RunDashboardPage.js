@@ -51,12 +51,22 @@ export const RunDashboardPage = () => {
     loadRunData();
     
     // Subscribe to real-time updates
-    const unsubscribe = wsService.subscribeToRun(runId, (data) => {
+    const unsubscribe = wsService.subscribeToRun(runId, async (data) => {
       setRun(prev => ({ ...prev, ...data }));
       
       // Add new event if included
       if (data.event) {
         setEvents(prev => [data.event, ...prev]);
+      }
+      
+      // If run status changed to FAILED or CANCELED, load checkpoint
+      if (data.status && ['FAILED', 'CANCELED'].includes(data.status)) {
+        try {
+          const checkpointResponse = await runsAPI.getCheckpoint(runId);
+          setCheckpoint(checkpointResponse.data);
+        } catch (error) {
+          console.log('No checkpoint available after status change:', error);
+        }
       }
     });
 
@@ -185,7 +195,6 @@ export const RunDashboardPage = () => {
       {/* Show checkpoint panel for failed/canceled runs */}
       {['FAILED', 'CANCELED'].includes(run.status) && checkpoint && checkpoint.has_checkpoint && (
         <CheckpointPanel
-          runId={runId}
           checkpoint={checkpoint}
           onResume={handleResume}
           onStartFresh={handleStartFresh}

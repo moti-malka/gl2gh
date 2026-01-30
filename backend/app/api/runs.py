@@ -254,7 +254,28 @@ async def get_checkpoint(
         }
     
     # Look for checkpoint file in export directory
-    checkpoint_file = Path(run.artifact_root) / "export" / ".export_checkpoint.json"
+    # Validate artifact_root to prevent path traversal
+    try:
+        artifact_root = Path(run.artifact_root).resolve()
+        checkpoint_file = (artifact_root / "export" / ".export_checkpoint.json").resolve()
+        
+        # Ensure checkpoint file is within artifact root
+        if not str(checkpoint_file).startswith(str(artifact_root)):
+            logger.warning(f"Potential path traversal attempt for run {run_id}")
+            return {
+                "has_checkpoint": False,
+                "components": {},
+                "resumable": False,
+                "resume_from": None
+            }
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
     
     if not checkpoint_file.exists():
         return {
@@ -348,12 +369,36 @@ async def clear_checkpoint(
     """Clear checkpoint for a run to start fresh"""
     run = await check_run_access(run_id, current_user)
     
+    # Only allow clearing checkpoint for failed or canceled runs
+    if run.status not in ["FAILED", "CANCELED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot clear checkpoint for run with status {run.status}. Only FAILED or CANCELED runs can have checkpoints cleared."
+        )
+    
     # Check if run has artifact root
     if not run.artifact_root:
         return {"message": "No checkpoint to clear"}
     
     # Look for checkpoint file in export directory
-    checkpoint_file = Path(run.artifact_root) / "export" / ".export_checkpoint.json"
+    # Validate artifact_root to prevent path traversal
+    try:
+        artifact_root = Path(run.artifact_root).resolve()
+        checkpoint_file = (artifact_root / "export" / ".export_checkpoint.json").resolve()
+        
+        # Ensure checkpoint file is within artifact root
+        if not str(checkpoint_file).startswith(str(artifact_root)):
+            logger.warning(f"Potential path traversal attempt for run {run_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid checkpoint path"
+            )
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact path"
+        )
     
     if not checkpoint_file.exists():
         return {"message": "No checkpoint to clear"}

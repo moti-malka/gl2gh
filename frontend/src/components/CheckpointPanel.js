@@ -5,7 +5,7 @@
 import React from 'react';
 import './CheckpointPanel.css';
 
-export const CheckpointPanel = ({ runId, checkpoint, onResume, onStartFresh }) => {
+export const CheckpointPanel = ({ checkpoint, onResume, onStartFresh }) => {
   if (!checkpoint || !checkpoint.has_checkpoint) {
     return null;
   }
@@ -73,24 +73,30 @@ export const CheckpointPanel = ({ runId, checkpoint, onResume, onStartFresh }) =
 
         <div className="checkpoint-components">
           <h4>Component Progress</h4>
-          <ul className="components-list">
-            {componentsList.map(([name, data]) => (
-              <li key={name} className={`component-item ${getComponentStatusClass(data.status)}`}>
-                <span className="component-icon">
-                  {getComponentStatusIcon(data.status)}
-                </span>
-                <span className="component-name">{name}</span>
-                <span className="component-status">
-                  {data.status}
-                  {data.processed_items !== undefined && data.total_items !== undefined && (
-                    <span className="component-progress">
-                      {' '}({data.processed_items}/{data.total_items})
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {componentsList.length > 0 ? (
+            <ul className="components-list">
+              {componentsList.map(([name, data]) => (
+                <li key={name} className={`component-item ${getComponentStatusClass(data.status)}`}>
+                  <span className="component-icon">
+                    {getComponentStatusIcon(data.status)}
+                  </span>
+                  <span className="component-name">{name}</span>
+                  <span className="component-status">
+                    {data.status}
+                    {data.processed_items !== undefined && data.total_items !== undefined && (
+                      <span className="component-progress">
+                        {' '}({data.processed_items}/{data.total_items})
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ color: '#666', fontStyle: 'italic', margin: '10px 0' }}>
+              No component progress information available.
+            </p>
+          )}
         </div>
 
         {checkpoint.errors && checkpoint.errors.length > 0 && (
