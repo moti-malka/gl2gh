@@ -21,8 +21,12 @@ logger = get_logger(__name__)
 ATTACHMENT_PATTERNS = [
     r'!\[.*?\]\((/uploads/[^)]+)\)',           # Images: ![alt](/uploads/...)
     r'\[.*?\]\((/uploads/[^)]+)\)',            # Files: [name](/uploads/...)
-    r'(/uploads/[a-f0-9]+/[^\s)]+)',           # Direct upload links
+    r'(/uploads/[a-fA-F0-9]+/[^\s)]+)',        # Direct upload links (case-insensitive hex)
 ]
+
+# Maximum file size for GitHub (100 MB limit, warn at 50 MB)
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+WARN_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 class ExportAgent(BaseAgent):
@@ -300,6 +304,11 @@ class ExportAgent(BaseAgent):
             Local path to downloaded file, or None if failed
         """
         try:
+            # Validate attachment path to prevent path traversal
+            if ".." in attachment_path or attachment_path.startswith("/.."):
+                self.log_event("WARNING", f"Suspicious attachment path detected: {attachment_path}")
+                return None
+            
             # Construct full URL
             # GitLab attachment URLs are: {base_url}/{project_path}{attachment_path}
             url = f"{self.gitlab_client.base_url}/{project_path}{attachment_path}"
@@ -310,10 +319,22 @@ class ExportAgent(BaseAgent):
             if len(path_parts) >= 3:  # uploads/hash/filename
                 hash_part = path_parts[1]
                 filename = path_parts[-1]
-                safe_filename = f"{hash_part}_{filename}"
+                
+                # Sanitize filename to prevent issues with special characters
+                import re
+                # Allow only alphanumeric, underscore, hyphen, and single period for extension
+                safe_filename_part = re.sub(r'[^\w\-.]', '_', filename)
+                # Prevent multiple dots (except for extension)
+                parts = safe_filename_part.rsplit('.', 1)
+                if len(parts) == 2:
+                    name_part = parts[0].replace('.', '_')
+                    ext_part = parts[1]
+                    safe_filename_part = f"{name_part}.{ext_part}"
+                
+                safe_filename = f"{hash_part}_{safe_filename_part}"
             else:
                 # Fallback: use sanitized full path
-                safe_filename = attachment_path.replace('/', '_').strip('_')
+                safe_filename = re.sub(r'[^\w\-.]', '_', attachment_path.replace('/', '_').strip('_'))
             
             output_path = output_dir / safe_filename
             
@@ -321,6 +342,15 @@ class ExportAgent(BaseAgent):
             success = await self.gitlab_client.download_file(url, output_path)
             
             if success:
+                # Check file size after download
+                file_size = output_path.stat().st_size
+                if file_size > MAX_FILE_SIZE:
+                    self.log_event("WARNING", f"Attachment {attachment_path} exceeds GitHub limit ({file_size / 1024 / 1024:.1f} MB > 100 MB)")
+                    output_path.unlink()  # Delete oversized file
+                    return None
+                elif file_size > WARN_FILE_SIZE:
+                    self.log_event("WARNING", f"Large attachment {attachment_path}: {file_size / 1024 / 1024:.1f} MB (GitHub limit is 100 MB)")
+                
                 self.log_event("DEBUG", f"Downloaded attachment: {attachment_path} -> {safe_filename}")
                 return output_path
             else:

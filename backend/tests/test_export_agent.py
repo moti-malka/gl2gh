@@ -466,10 +466,15 @@ async def test_extract_attachments(export_agent):
     attachments2 = export_agent._extract_attachments(content2)
     assert "/uploads/def456/error.log" in attachments2
     
-    # Test direct links with hash pattern
+    # Test direct links with hash pattern (lowercase)
     content3 = "Download from /uploads/abc789def/file.pdf here"
     attachments3 = export_agent._extract_attachments(content3)
     assert "/uploads/abc789def/file.pdf" in attachments3
+    
+    # Test direct links with uppercase hex (case-insensitive)
+    content3b = "Download from /uploads/ABC789DEF/file.pdf here"
+    attachments3b = export_agent._extract_attachments(content3b)
+    assert "/uploads/ABC789DEF/file.pdf" in attachments3b
     
     # Test multiple attachments
     content4 = """
@@ -498,10 +503,18 @@ async def test_download_attachment(export_agent, mock_gitlab_client, tmp_path):
     """Test attachment download"""
     export_agent.gitlab_client = mock_gitlab_client
     mock_gitlab_client.base_url = "https://gitlab.com"
-    mock_gitlab_client.download_file = AsyncMock(return_value=True)
     
     output_dir = tmp_path / "attachments"
     output_dir.mkdir(parents=True)
+    
+    # Mock download_file to create an actual file
+    async def mock_download(url, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(b"fake image data")
+        return True
+    
+    mock_gitlab_client.download_file = AsyncMock(side_effect=mock_download)
     
     # Test downloading an attachment
     result = await export_agent._download_attachment(
@@ -544,7 +557,15 @@ async def test_export_issues_with_attachments(export_agent, mock_gitlab_client, 
     """Test issue export with attachment download"""
     export_agent.gitlab_client = mock_gitlab_client
     mock_gitlab_client.base_url = "https://gitlab.com"
-    mock_gitlab_client.download_file = AsyncMock(return_value=True)
+    
+    # Mock download_file to create actual files
+    async def mock_download(url, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(b"fake file data")
+        return True
+    
+    mock_gitlab_client.download_file = AsyncMock(side_effect=mock_download)
     
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)

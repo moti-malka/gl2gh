@@ -4,7 +4,11 @@ from typing import Any, Dict
 from pathlib import Path
 import json
 from datetime import datetime
+from github import GithubException
 from .base import BaseAction, ActionResult
+
+# GitHub file size limits
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 
 class CommitAttachmentsAction(BaseAction):
@@ -22,69 +26,72 @@ class CommitAttachmentsAction(BaseAction):
             # Track committed files
             committed_files = []
             attachment_urls = {}
+            skipped_files = []
+            
+            # Helper function to commit attachments from a directory
+            def commit_attachments_from_dir(attachments_dir: Path, subpath: str):
+                if not attachments_dir.exists():
+                    return
+                
+                for attachment_file in attachments_dir.iterdir():
+                    if not attachment_file.is_file():
+                        continue
+                    
+                    # Check file size
+                    file_size = attachment_file.stat().st_size
+                    if file_size > MAX_FILE_SIZE:
+                        self.logger.warning(
+                            f"Skipping {attachment_file.name}: "
+                            f"{file_size / 1024 / 1024:.1f} MB exceeds GitHub limit (100 MB)"
+                        )
+                        skipped_files.append(str(attachment_file))
+                        continue
+                    
+                    file_path = f"{target_base_path}/{subpath}/{attachment_file.name}"
+                    
+                    with open(attachment_file, 'rb') as f:
+                        content = f.read()
+                    
+                    try:
+                        # Try to get existing file
+                        existing = repo.get_contents(file_path, ref=branch)
+                        repo.update_file(
+                            path=file_path,
+                            message=f"Update attachment: {attachment_file.name}",
+                            content=content,
+                            sha=existing.sha,
+                            branch=branch
+                        )
+                    except GithubException as e:
+                        if e.status == 404:
+                            # File doesn't exist, create new file
+                            try:
+                                repo.create_file(
+                                    path=file_path,
+                                    message=f"Add attachment: {attachment_file.name}",
+                                    content=content,
+                                    branch=branch
+                                )
+                            except GithubException as create_error:
+                                self.logger.error(f"Failed to create {file_path}: {create_error}")
+                                skipped_files.append(str(attachment_file))
+                                continue
+                        else:
+                            self.logger.error(f"Failed to process {file_path}: {e}")
+                            skipped_files.append(str(attachment_file))
+                            continue
+                    
+                    committed_files.append(file_path)
+                    # Generate GitHub URL for the file
+                    attachment_urls[attachment_file.name] = f"https://github.com/{target_repo}/blob/{branch}/{file_path}"
             
             # Process issue attachments
             issues_attachments_dir = export_dir / "issues" / "attachments"
-            if issues_attachments_dir.exists():
-                for attachment_file in issues_attachments_dir.iterdir():
-                    if attachment_file.is_file():
-                        file_path = f"{target_base_path}/issues/{attachment_file.name}"
-                        
-                        with open(attachment_file, 'rb') as f:
-                            content = f.read()
-                        
-                        try:
-                            # Try to get existing file
-                            existing = repo.get_contents(file_path, ref=branch)
-                            repo.update_file(
-                                path=file_path,
-                                message=f"Update attachment: {attachment_file.name}",
-                                content=content,
-                                sha=existing.sha,
-                                branch=branch
-                            )
-                        except:
-                            # Create new file
-                            repo.create_file(
-                                path=file_path,
-                                message=f"Add attachment: {attachment_file.name}",
-                                content=content,
-                                branch=branch
-                            )
-                        
-                        committed_files.append(file_path)
-                        # Generate GitHub URL for the file
-                        attachment_urls[attachment_file.name] = f"https://github.com/{target_repo}/blob/{branch}/{file_path}"
+            commit_attachments_from_dir(issues_attachments_dir, "issues")
             
             # Process MR attachments
             mr_attachments_dir = export_dir / "merge_requests" / "attachments"
-            if mr_attachments_dir.exists():
-                for attachment_file in mr_attachments_dir.iterdir():
-                    if attachment_file.is_file():
-                        file_path = f"{target_base_path}/merge_requests/{attachment_file.name}"
-                        
-                        with open(attachment_file, 'rb') as f:
-                            content = f.read()
-                        
-                        try:
-                            existing = repo.get_contents(file_path, ref=branch)
-                            repo.update_file(
-                                path=file_path,
-                                message=f"Update attachment: {attachment_file.name}",
-                                content=content,
-                                sha=existing.sha,
-                                branch=branch
-                            )
-                        except:
-                            repo.create_file(
-                                path=file_path,
-                                message=f"Add attachment: {attachment_file.name}",
-                                content=content,
-                                branch=branch
-                            )
-                        
-                        committed_files.append(file_path)
-                        attachment_urls[attachment_file.name] = f"https://github.com/{target_repo}/blob/{branch}/{file_path}"
+            commit_attachments_from_dir(mr_attachments_dir, "merge_requests")
             
             return ActionResult(
                 success=True,
@@ -93,6 +100,7 @@ class CommitAttachmentsAction(BaseAction):
                 outputs={
                     "committed_files": committed_files,
                     "attachment_urls": attachment_urls,
+                    "skipped_files": skipped_files,
                     "count": len(committed_files),
                     "target_repo": target_repo
                 }
@@ -144,14 +152,17 @@ class CommitPreservationArtifactsAction(BaseAction):
                     sha=existing.sha,
                     branch=branch
                 )
-            except:
-                # Create new file
-                repo.create_file(
-                    path=metadata_path,
-                    message="Add migration metadata",
-                    content=metadata_content,
-                    branch=branch
-                )
+            except GithubException as e:
+                if e.status == 404:
+                    # File doesn't exist, create new file
+                    repo.create_file(
+                        path=metadata_path,
+                        message="Add migration metadata",
+                        content=metadata_content,
+                        branch=branch
+                    )
+                else:
+                    raise
             
             # Commit ID mappings
             mappings_content = json.dumps(id_mappings, indent=2)
@@ -166,13 +177,17 @@ class CommitPreservationArtifactsAction(BaseAction):
                     sha=existing.sha,
                     branch=branch
                 )
-            except:
-                repo.create_file(
-                    path=mappings_path,
-                    message="Add ID mappings",
-                    content=mappings_content,
-                    branch=branch
-                )
+            except GithubException as e:
+                if e.status == 404:
+                    # File doesn't exist, create new file
+                    repo.create_file(
+                        path=mappings_path,
+                        message="Add ID mappings",
+                        content=mappings_content,
+                        branch=branch
+                    )
+                else:
+                    raise
             
             return ActionResult(
                 success=True,
