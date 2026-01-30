@@ -8,7 +8,8 @@ import socketio
 from app.config import settings
 from app.db import connect_to_mongo, close_mongo_connection
 from app.utils.logging import setup_logging, get_logger
-from app.api import auth, projects, connections, runs, events
+from app.api import auth, projects, connections, runs, events, user_mappings
+from app.api import auth, projects, connections, connections_test_router, runs, events
 
 logger = get_logger(__name__)
 
@@ -46,8 +47,11 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
 app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
 app.include_router(connections.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["connections"])
+# Test endpoints for connections (no project_id required)
+app.include_router(connections_test_router, prefix=f"{settings.API_V1_PREFIX}", tags=["connections"])
 app.include_router(runs.router, prefix=f"{settings.API_V1_PREFIX}", tags=["runs"])
 app.include_router(events.router, prefix=f"{settings.API_V1_PREFIX}/runs", tags=["events"])
+app.include_router(user_mappings.router, prefix=f"{settings.API_V1_PREFIX}/runs", tags=["user-mappings"])
 
 
 @app.get("/")

@@ -125,13 +125,80 @@ build:
     
     # Mock releases
     client.list_releases.return_value = [
-        {"tag_name": "v1.0.0", "name": "Release 1.0.0"}
+        {
+            "tag_name": "v1.0.0", 
+            "name": "Release 1.0.0",
+            "assets": {
+                "links": [
+                    {
+                        "name": "myapp-linux-amd64",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/myapp-linux-amd64"
+                    },
+                    {
+                        "name": "myapp-darwin-amd64",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/myapp-darwin-amd64"
+                    }
+                ]
+            }
+        }
     ]
+    
+    # Mock file download
+    client.download_file = AsyncMock(return_value=True)
     
     # Mock packages
     client.list_packages.return_value = [
-        {"name": "package1", "version": "1.0.0"}
+        {
+            "id": 1,
+            "name": "package1",
+            "version": "1.0.0",
+            "package_type": "npm",
+            "created_at": "2024-01-01T00:00:00Z"
+        },
+        {
+            "id": 2,
+            "name": "maven-package",
+            "version": "2.0.0",
+            "package_type": "maven",
+            "created_at": "2024-01-02T00:00:00Z"
+        }
     ]
+    
+    # Mock package details with files
+    async def mock_get_package_details(project_id, package_id):
+        if package_id == 1:
+            return {
+                "id": 1,
+                "name": "package1",
+                "version": "1.0.0",
+                "package_type": "npm",
+                "package_files": [
+                    {"id": 101, "file_name": "package1-1.0.0.tgz", "size": 1024}
+                ]
+            }
+        elif package_id == 2:
+            return {
+                "id": 2,
+                "name": "maven-package",
+                "version": "2.0.0",
+                "package_type": "maven",
+                "package_files": [
+                    {"id": 201, "file_name": "maven-package-2.0.0.jar", "size": 2048},
+                    {"id": 202, "file_name": "maven-package-2.0.0.pom", "size": 512}
+                ]
+            }
+        return {}
+    
+    client.get_package_details = mock_get_package_details
+    
+    # Mock package file download
+    async def mock_download_package_file(project_id, package_id, file_id, output_path):
+        # Create a dummy file
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(f"mock package file {file_id}")
+        return True
+    
+    client.download_package_file = mock_download_package_file
     
     # Mock settings
     client.list_protected_branches.return_value = [
@@ -305,14 +372,81 @@ async def test_export_releases(export_agent, mock_gitlab_client, tmp_path):
     
     assert result["success"] is True
     assert result["count"] == 1
+    assert result["assets_downloaded"] == 2
     
     releases_file = output_dir / "releases" / "releases.json"
     assert releases_file.exists()
+    
+    # Verify asset download was called
+    assert mock_gitlab_client.download_file.call_count == 2
+    
+    # Verify release directory structure
+    release_dir = output_dir / "releases" / "v1.0.0"
+    assert release_dir.exists()
+    
+    # Verify local_path is stored in releases metadata
+    with open(releases_file, 'r') as f:
+        releases = json.load(f)
+    
+    assert len(releases) == 1
+    release = releases[0]
+    assert "assets" in release
+    assets = release["assets"]["links"]
+    assert len(assets) == 2
+    
+    # Verify local_path was added to each asset
+    assert "local_path" in assets[0]
+    assert "local_path" in assets[1]
+    assert assets[0]["local_path"].endswith("myapp-linux-amd64")
+    assert assets[1]["local_path"].endswith("myapp-darwin-amd64")
+
+
+@pytest.mark.asyncio
+async def test_export_releases_with_failed_downloads(export_agent, tmp_path):
+    """Test releases export with failed asset downloads"""
+    # Create a mock client with mixed success/failure
+    mock_client = AsyncMock()
+    mock_client.list_releases.return_value = [
+        {
+            "tag_name": "v1.0.0",
+            "name": "Release 1.0.0",
+            "assets": {
+                "links": [
+                    {
+                        "name": "success-file",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/success-file"
+                    },
+                    {
+                        "name": "failed-file",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/failed-file"
+                    }
+                ]
+            }
+        }
+    ]
+    
+    # Mock download_file to succeed once and fail once
+    mock_client.download_file = AsyncMock(side_effect=[True, False])
+    
+    export_agent.gitlab_client = mock_client
+    output_dir = tmp_path / "export"
+    output_dir.mkdir(parents=True)
+    export_agent._create_directory_structure(output_dir)
+    
+    project = {"id": 123}
+    result = await export_agent._export_releases(123, project, output_dir)
+    
+    assert result["success"] is True
+    assert result["count"] == 1
+    assert result["assets_downloaded"] == 1
+    assert "failed_downloads" in result
+    assert len(result["failed_downloads"]) == 1
+    assert "v1.0.0/failed-file" in result["failed_downloads"]
 
 
 @pytest.mark.asyncio
 async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
-    """Test packages export"""
+    """Test packages export with file downloads"""
     export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
@@ -322,10 +456,55 @@ async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
     result = await export_agent._export_packages(123, project, output_dir)
     
     assert result["success"] is True
-    assert result["count"] == 1
+    assert result["count"] == 2  # Two packages in mock
+    assert result["downloaded_files"] == 3  # npm: 1 file, maven: 2 files
     
+    # Check packages.json exists and has expected structure
     packages_file = output_dir / "packages" / "packages.json"
     assert packages_file.exists()
+    
+    with open(packages_file) as f:
+        packages = json.load(f)
+        assert len(packages) == 2
+        
+        # Check npm package
+        npm_pkg = next(p for p in packages if p["package_type"] == "npm")
+        assert npm_pkg["name"] == "package1"
+        assert npm_pkg["version"] == "1.0.0"
+        assert npm_pkg["migrable"] is True
+        assert len(npm_pkg["files"]) == 1
+        assert npm_pkg["files"][0]["file_name"] == "package1-1.0.0.tgz"
+        
+        # Check maven package
+        maven_pkg = next(p for p in packages if p["package_type"] == "maven")
+        assert maven_pkg["name"] == "maven-package"
+        assert maven_pkg["version"] == "2.0.0"
+        assert maven_pkg["migrable"] is True
+        assert len(maven_pkg["files"]) == 2
+    
+    # Check inventory.json exists
+    inventory_file = output_dir / "packages" / "inventory.json"
+    assert inventory_file.exists()
+    
+    with open(inventory_file) as f:
+        inventory = json.load(f)
+        assert inventory["total_packages"] == 2
+        assert inventory["downloaded_files"] == 3
+        assert inventory["migrable_count"] == 2
+        assert inventory["non_migrable_count"] == 0
+        assert "npm" in inventory["by_type"]
+        assert "maven" in inventory["by_type"]
+    
+    # Check that actual package files were created
+    npm_file = output_dir / "packages" / "npm" / "package1" / "1.0.0" / "package1-1.0.0.tgz"
+    assert npm_file.exists()
+    
+    maven_jar = output_dir / "packages" / "maven" / "maven-package" / "2.0.0" / "maven-package-2.0.0.jar"
+    assert maven_jar.exists()
+    
+    maven_pom = output_dir / "packages" / "maven" / "maven-package" / "2.0.0" / "maven-package-2.0.0.pom"
+    assert maven_pom.exists()
+
 
 
 @pytest.mark.asyncio
@@ -598,3 +777,165 @@ async def test_export_lfs_objects_fetch_failure(export_agent, mock_gitlab_client
         
         assert result["success"] is False
         assert "LFS fetch failed" in result["error"]
+async def test_extract_attachments(export_agent):
+    """Test attachment extraction from markdown"""
+    # Test image attachments
+    content1 = "Here's a screenshot: ![bug](/uploads/abc123/screenshot.png)"
+    attachments1 = export_agent._extract_attachments(content1)
+    assert "/uploads/abc123/screenshot.png" in attachments1
+    
+    # Test file attachments
+    content2 = "See log file: [error.log](/uploads/def456/error.log)"
+    attachments2 = export_agent._extract_attachments(content2)
+    assert "/uploads/def456/error.log" in attachments2
+    
+    # Test direct links with hash pattern (lowercase)
+    content3 = "Download from /uploads/abc789def/file.pdf here"
+    attachments3 = export_agent._extract_attachments(content3)
+    assert "/uploads/abc789def/file.pdf" in attachments3
+    
+    # Test direct links with uppercase hex (case-insensitive)
+    content3b = "Download from /uploads/ABC789DEF/file.pdf here"
+    attachments3b = export_agent._extract_attachments(content3b)
+    assert "/uploads/ABC789DEF/file.pdf" in attachments3b
+    
+    # Test multiple attachments
+    content4 = """
+    Multiple files:
+    ![image1](/uploads/aaa111/img1.png)
+    ![image2](/uploads/bbb222/img2.jpg)
+    [doc](/uploads/ccc333/doc.pdf)
+    """
+    attachments4 = export_agent._extract_attachments(content4)
+    assert len(attachments4) == 3
+    assert "/uploads/aaa111/img1.png" in attachments4
+    assert "/uploads/bbb222/img2.jpg" in attachments4
+    assert "/uploads/ccc333/doc.pdf" in attachments4
+    
+    # Test empty content
+    attachments5 = export_agent._extract_attachments("")
+    assert len(attachments5) == 0
+    
+    # Test None content
+    attachments6 = export_agent._extract_attachments(None)
+    assert len(attachments6) == 0
+
+
+@pytest.mark.asyncio
+async def test_download_attachment(export_agent, mock_gitlab_client, tmp_path):
+    """Test attachment download"""
+    export_agent.gitlab_client = mock_gitlab_client
+    mock_gitlab_client.base_url = "https://gitlab.com"
+    
+    output_dir = tmp_path / "attachments"
+    output_dir.mkdir(parents=True)
+    
+    # Mock download_file to create an actual file
+    async def mock_download(url, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(b"fake image data")
+        return True
+    
+    mock_gitlab_client.download_file = AsyncMock(side_effect=mock_download)
+    
+    # Test downloading an attachment
+    result = await export_agent._download_attachment(
+        "test/project",
+        "/uploads/abc123def/screenshot.png",
+        output_dir
+    )
+    
+    assert result is not None
+    assert result.name == "abc123def_screenshot.png"
+    assert mock_gitlab_client.download_file.called
+    
+    # Verify the URL was constructed correctly
+    call_args = mock_gitlab_client.download_file.call_args
+    assert "https://gitlab.com/test/project/uploads/abc123def/screenshot.png" in str(call_args[0][0])
+
+
+@pytest.mark.asyncio
+async def test_download_attachment_failure(export_agent, mock_gitlab_client, tmp_path):
+    """Test attachment download failure handling"""
+    export_agent.gitlab_client = mock_gitlab_client
+    mock_gitlab_client.base_url = "https://gitlab.com"
+    mock_gitlab_client.download_file = AsyncMock(return_value=False)
+    
+    output_dir = tmp_path / "attachments"
+    output_dir.mkdir(parents=True)
+    
+    # Test downloading an attachment that fails
+    result = await export_agent._download_attachment(
+        "test/project",
+        "/uploads/abc123/file.png",
+        output_dir
+    )
+    
+    assert result is None  # Should return None on failure
+
+
+@pytest.mark.asyncio
+async def test_export_issues_with_attachments(export_agent, mock_gitlab_client, tmp_path):
+    """Test issue export with attachment download"""
+    export_agent.gitlab_client = mock_gitlab_client
+    mock_gitlab_client.base_url = "https://gitlab.com"
+    
+    # Mock download_file to create actual files
+    async def mock_download(url, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'wb') as f:
+            f.write(b"fake file data")
+        return True
+    
+    mock_gitlab_client.download_file = AsyncMock(side_effect=mock_download)
+    
+    output_dir = tmp_path / "export"
+    output_dir.mkdir(parents=True)
+    export_agent._create_directory_structure(output_dir)
+    
+    # Mock issues with attachments
+    async def mock_list_issues(project_id):
+        issues = [
+            {"iid": 1, "title": "Issue with screenshot", "state": "opened"}
+        ]
+        for issue in issues:
+            yield issue
+    
+    mock_gitlab_client.list_issues = mock_list_issues
+    mock_gitlab_client.get_issue.return_value = {
+        "iid": 1,
+        "title": "Issue with screenshot",
+        "description": "Here's a bug: ![screenshot](/uploads/abc123/bug.png)",
+        "state": "opened"
+    }
+    mock_gitlab_client.list_issue_notes.return_value = [
+        {"body": "Also see [log file](/uploads/def456/error.log)", "author": {"username": "user1"}}
+    ]
+    
+    project = {
+        "id": 123,
+        "path_with_namespace": "test/project"
+    }
+    
+    result = await export_agent._export_issues(123, project, output_dir)
+    
+    assert result["success"] is True
+    assert result["count"] == 1
+    
+    # Check that issues.json was created
+    issues_file = output_dir / "issues" / "issues.json"
+    assert issues_file.exists()
+    
+    # Check that attachment metadata was created
+    metadata_file = output_dir / "issues" / "attachment_metadata.json"
+    assert metadata_file.exists()
+    
+    # Check attachment metadata content
+    with open(metadata_file) as f:
+        metadata = json.load(f)
+        assert "/uploads/abc123/bug.png" in metadata
+        assert "/uploads/def456/error.log" in metadata
+    
+    # Verify download_file was called
+    assert mock_gitlab_client.download_file.call_count >= 2
