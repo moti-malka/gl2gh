@@ -72,9 +72,11 @@ class CICDTransformer(BaseTransformer):
             self.log_transform_complete(True, f"Converted {len(jobs)} jobs")
             
         except yaml.YAMLError as e:
+            result.success = False
             result.add_error(f"Invalid YAML: {str(e)}")
             self.log_transform_complete(False, f"YAML parsing error: {str(e)}")
         except Exception as e:
+            result.success = False
             result.add_error(f"Transformation error: {str(e)}")
             self.log_transform_complete(False, str(e))
         

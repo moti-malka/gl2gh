@@ -227,7 +227,7 @@ class TransformAgent(BaseAgent):
             "gitlab_ci_yaml": gitlab_ci_yaml
         })
         
-        if not result.success:
+        if not result.success or not result.data:
             self.log_event("ERROR", "CI/CD transformation failed")
             return {
                 "success": False,
