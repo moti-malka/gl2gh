@@ -135,7 +135,7 @@ export const QuickMigratePage = () => {
         }
       });
       
-      const { run_id, dashboard_url, message } = response.data;
+      const { dashboard_url, message } = response.data;
       toast.success(message || 'Migration started successfully!');
       navigate(dashboard_url);
       
