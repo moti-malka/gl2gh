@@ -11,7 +11,7 @@ from app.utils.transformers import (
     UserMapper,
     ContentTransformer,
     GapAnalyzer,
-    SubmoduleTransformer
+    ProtectionRulesTransformer
 )
 
 logger = get_logger(__name__)
@@ -60,7 +60,7 @@ class TransformAgent(BaseAgent):
         self.user_mapper = UserMapper()
         self.content_transformer = ContentTransformer()
         self.gap_analyzer = GapAnalyzer()
-        self.submodule_transformer = SubmoduleTransformer()
+        self.protection_transformer = ProtectionRulesTransformer()
     
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """Validate transform inputs"""
@@ -173,20 +173,22 @@ class TransformAgent(BaseAgent):
             if milestones_result and milestones_result.get("artifacts"):
                 artifacts.extend(milestones_result["artifacts"])
             
-            # 6. Transform submodules
-            submodules_result = await self._transform_submodules(
-                export_data.get("submodules_content"),
-                gitlab_project,
-                github_repo,
+            # 6. Transform branch protection rules
+            protection_result = await self._transform_protection_rules(
+                export_data.get("protected_branches", []),
+                export_data.get("protected_tags", []),
+                export_data.get("members", []),
+                workflows_result.get("ci_jobs", []) if workflows_result else [],
+                export_data.get("approval_rules", []),
                 output_dir
             )
-            if submodules_result and submodules_result.get("artifacts"):
-                artifacts.extend(submodules_result["artifacts"])
-            if submodules_result and submodules_result.get("warnings"):
-                all_warnings.extend(submodules_result["warnings"])
-            if submodules_result and not submodules_result.get("success", True):
-                if submodules_result.get("errors"):
-                    all_errors.extend(submodules_result["errors"])
+            if protection_result and protection_result.get("artifacts"):
+                artifacts.extend(protection_result["artifacts"])
+            if protection_result and protection_result.get("warnings"):
+                all_warnings.extend(protection_result["warnings"])
+            if protection_result and not protection_result.get("success", True):
+                if protection_result.get("errors"):
+                    all_errors.extend(protection_result["errors"])
             
             # 7. Perform gap analysis
             gap_analysis_result = await self._analyze_gaps(
@@ -213,9 +215,7 @@ class TransformAgent(BaseAgent):
                     "users_mapped": user_mappings_result.get("stats", {}).get("mapped", 0) if user_mappings_result else 0,
                     "issues_transformed": len(issues_result.get("issues", [])) if issues_result else 0,
                     "mrs_transformed": len(mrs_result.get("merge_requests", [])) if mrs_result else 0,
-                    "submodules_rewritten": submodules_result.get("rewrite_count", 0) if submodules_result else 0,
-                    "submodules": submodules_result.get("submodules", []) if submodules_result else [],
-                    "gitmodules_content": submodules_result.get("gitmodules_content", "") if submodules_result else "",
+                    "branches_protected": protection_result.get("branches_protected", 0) if protection_result else 0,
                     "conversion_gaps": len(gap_analysis_result.get("gaps", [])) if gap_analysis_result else 0
                 },
                 artifacts=artifacts,
@@ -266,11 +266,23 @@ class TransformAgent(BaseAgent):
         
         artifacts = [str(workflow_file)]
         
+        # Extract CI job names for use in branch protection
+        ci_jobs = []
+        try:
+            parsed_ci = gitlab_ci_yaml
+            if isinstance(gitlab_ci_yaml, str):
+                parsed_ci = yaml.safe_load(gitlab_ci_yaml)
+            if isinstance(parsed_ci, dict):
+                ci_jobs = self.protection_transformer.get_required_status_checks_from_ci(parsed_ci)
+        except Exception as e:
+            self.log_event("WARNING", f"Failed to extract CI jobs: {str(e)}")
+        
         self.log_event("INFO", f"Generated GitHub Actions workflow: {workflow_file}")
         
         return {
             "success": True,
             "workflows": [str(workflow_file)],
+            "ci_jobs": ci_jobs,
             "conversion_gaps": result.metadata.get("conversion_gaps", []),
             "artifacts": artifacts,
             "warnings": result.warnings,
@@ -479,6 +491,95 @@ class TransformAgent(BaseAgent):
             "success": True,
             "milestones": transformed_milestones,
             "artifacts": [str(milestones_file)]
+        }
+    
+    async def _transform_protection_rules(
+        self,
+        protected_branches: List[Dict[str, Any]],
+        protected_tags: List[Dict[str, Any]],
+        members: List[Dict[str, Any]],
+        ci_jobs: List[str],
+        approval_rules: List[Dict[str, Any]],
+        output_dir: Path
+    ) -> Optional[Dict[str, Any]]:
+        """Transform GitLab branch protection rules to GitHub protection settings"""
+        if not protected_branches and not protected_tags:
+            self.log_event("INFO", "No protected branches or tags found, skipping protection transformation")
+            return None
+        
+        self.log_event("INFO", f"Transforming {len(protected_branches)} protected branches and {len(protected_tags)} protected tags")
+        
+        # Prepare input for transformer
+        transform_input = {
+            "protected_branches": protected_branches,
+            "protected_tags": protected_tags,
+            "project_members": members,
+            "ci_jobs": ci_jobs,
+            "approval_rules": approval_rules
+        }
+        
+        result = self.protection_transformer.transform(transform_input)
+        
+        if not result.success:
+            self.log_event("ERROR", "Protection rules transformation failed")
+            return {
+                "success": False,
+                "errors": result.errors,
+                "warnings": result.warnings,
+                "artifacts": []
+            }
+        
+        # Save protection rules
+        protection_dir = output_dir / "protection"
+        protection_dir.mkdir(exist_ok=True)
+        
+        artifacts = []
+        
+        # Save branch protection settings
+        branch_protections = result.data.get("branch_protections", [])
+        if branch_protections:
+            protections_file = protection_dir / "branch_protections.json"
+            with open(protections_file, "w") as f:
+                json.dump(branch_protections, f, indent=2)
+            artifacts.append(str(protections_file))
+            self.log_event("INFO", f"Saved {len(branch_protections)} branch protection settings: {protections_file}")
+        
+        # Save tag protection settings
+        tag_protections = result.data.get("protected_tags", [])
+        if tag_protections:
+            tags_file = protection_dir / "tag_protections.json"
+            with open(tags_file, "w") as f:
+                json.dump(tag_protections, f, indent=2)
+            artifacts.append(str(tags_file))
+            self.log_event("INFO", f"Saved {len(tag_protections)} tag protection settings: {tags_file}")
+        
+        # Save CODEOWNERS file if generated
+        codeowners_content = result.data.get("codeowners_content")
+        if codeowners_content:
+            codeowners_file = protection_dir / "CODEOWNERS"
+            with open(codeowners_file, "w") as f:
+                f.write(codeowners_content)
+            artifacts.append(str(codeowners_file))
+            self.log_event("INFO", f"Generated CODEOWNERS file: {codeowners_file}")
+        
+        # Save conversion gaps
+        gaps = result.data.get("gaps", [])
+        if gaps:
+            gaps_file = protection_dir / "protection_gaps.json"
+            with open(gaps_file, "w") as f:
+                json.dump(gaps, f, indent=2)
+            artifacts.append(str(gaps_file))
+            self.log_event("WARNING", f"Found {len(gaps)} protection conversion gaps: {gaps_file}")
+        
+        return {
+            "success": True,
+            "branches_protected": result.metadata.get("branches_protected", 0),
+            "tags_protected": result.metadata.get("tags_protected", 0),
+            "has_codeowners": result.metadata.get("has_codeowners", False),
+            "conversion_gaps": gaps,
+            "artifacts": artifacts,
+            "warnings": result.warnings,
+            "errors": result.errors
         }
     
     async def _analyze_gaps(

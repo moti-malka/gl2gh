@@ -33,8 +33,12 @@ class ContentTransformer(BaseTransformer):
         """
         self.user_mappings = {}
         for mapping in mappings:
-            gitlab_username = mapping.get("gitlab", {}).get("username")
-            github_login = mapping.get("github", {}).get("login")
+            if not mapping:  # Skip None mappings
+                continue
+            gitlab_info = mapping.get("gitlab") or {}
+            github_info = mapping.get("github") or {}
+            gitlab_username = gitlab_info.get("username")
+            github_login = github_info.get("login")
             if gitlab_username and github_login:
                 self.user_mappings[gitlab_username] = github_login
     
