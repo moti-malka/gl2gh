@@ -271,7 +271,8 @@ class AgentOrchestrator:
                 "export_data": self.shared_context.get("export_data"),
                 "gitlab_project": gitlab_project,
                 "github_target": github_target,
-                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/plan")
+                "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/plan"),
+                "component_selection": config.get("component_selection")  # Pass component selection from run
             })
         
         elif agent_name == "apply":

@@ -482,21 +482,24 @@ class PlanAgent(BaseAgent):
             # Load export data from files (more reliable than passing through context)
             export_data = self._load_export_data(output_dir.parent, inputs.get("export_data", {}))
             
-            self.log_event("INFO", f"Generating plan for {gitlab_project} -> {github_target}")
-            self.log_event("INFO", f"Export data: {len(export_data.get('issues', []))} issues, {len(export_data.get('merge_requests', []))} MRs, {len(export_data.get('labels', []))} labels")
+            # Load component selection (if available)
+            component_selection = inputs.get("component_selection", self._get_default_selection())
             
             self.log_event("INFO", f"Generating plan for {gitlab_project} -> {github_target}")
+            self.log_event("INFO", f"Export data: {len(export_data.get('issues', []))} issues, {len(export_data.get('merge_requests', []))} MRs, {len(export_data.get('labels', []))} labels")
+            self.log_event("INFO", f"Component selection: {component_selection}")
             
             # Create plan generator
             generator = PlanGenerator(run_id, project_id, gitlab_project, github_target)
             
-            # Generate plan actions
+            # Generate plan actions with component selection
             user_inputs_required = []
-            self._generate_plan_actions(generator, export_data, transform_data, user_inputs_required)
+            self._generate_plan_actions(generator, export_data, transform_data, user_inputs_required, component_selection)
             
             # Build complete plan
             plan = generator.build_plan(export_data)
             plan["user_inputs_required"] = user_inputs_required
+            plan["component_selection"] = component_selection
             
             # Generate artifacts
             artifacts = self._generate_plan_artifacts(output_dir, plan, generator)
@@ -524,16 +527,34 @@ class PlanAgent(BaseAgent):
                 errors=[{"step": "plan", "message": str(e)}]
             ).to_dict()
     
+    def _get_default_selection(self) -> Dict[str, Any]:
+        """Get default component selection (all enabled except optional ones)"""
+        return {
+            "repository": {"enabled": True, "lfs": False, "submodules": False},
+            "ci_cd": {"enabled": True, "workflows": True, "variables": True, "environments": True, "schedules": True},
+            "issues": {"enabled": True, "open": True, "closed": False, "labels": True, "milestones": True},
+            "merge_requests": {"enabled": False, "open": False, "merged": False},
+            "wiki": {"enabled": True},
+            "releases": {"enabled": True, "notes": True, "assets": False},
+            "packages": {"enabled": False},
+            "settings": {"enabled": False, "protected_branches": False, "webhooks": False, "members": False}
+        }
+    
     def _generate_plan_actions(
         self,
         generator: PlanGenerator,
         export_data: Dict[str, Any],
         transform_data: Dict[str, Any],
-        user_inputs_required: List[Dict[str, Any]]
+        user_inputs_required: List[Dict[str, Any]],
+        component_selection: Optional[Dict[str, Any]] = None
     ):
-        """Generate all plan actions"""
+        """Generate all plan actions based on component selection"""
         
-        # Phase 1: Foundation - Repository creation and code push
+        # Use default selection if none provided
+        if component_selection is None:
+            component_selection = self._get_default_selection()
+        
+        # Phase 1: Foundation - Repository creation and code push (ALWAYS required)
         repo_create_id = generator.add_action(
             action_type=ActionType.REPO_CREATE,
             component="repository",
@@ -569,8 +590,9 @@ class PlanAgent(BaseAgent):
             estimated_duration_seconds=120
         )
         
-        # LFS configuration if needed
-        if export_data.get("has_lfs", False):
+        # LFS configuration if needed and selected
+        repo_selection = component_selection.get("repository", {})
+        if repo_selection.get("lfs", False) and export_data.get("has_lfs", False):
             generator.add_action(
                 action_type=ActionType.LFS_CONFIGURE,
                 component="repository",
@@ -587,146 +609,164 @@ class PlanAgent(BaseAgent):
                 skip_if={"condition": "no_lfs", "check": "lfs_objects_count == 0"}
             )
         
-        # Phase 2: CI/CD - Workflows, environments, secrets
-        workflows = transform_data.get("workflows", [])
-        for workflow in workflows:
-            generator.add_action(
-                action_type=ActionType.WORKFLOW_COMMIT,
-                component="ci",
-                phase=Phase.CI_SETUP,
-                description=f"Commit workflow: {workflow.get('name', 'workflow.yml')}",
-                parameters={
-                    "workflow_path": workflow.get("source_path"),
-                    "target_path": f".github/workflows/{workflow.get('name', 'workflow.yml')}",
-                    "target_repo": generator.github_target,
-                    "branch": "main",
-                    "commit_message": f"Add {workflow.get('name')} workflow (migrated from GitLab CI)"
-                },
-                dependencies=[repo_push_id],
-                dry_run_safe=False,
-                reversible=True,
-                estimated_duration_seconds=10
-            )
-        
-        # Environments
-        environments = transform_data.get("environments", [])
-        env_action_ids = {}
-        for env in environments:
-            env_id = generator.add_action(
-                action_type=ActionType.ENVIRONMENT_CREATE,
-                component="ci",
-                phase=Phase.CI_SETUP,
-                description=f"Create environment: {env.get('name')}",
-                parameters={
-                    "target_repo": generator.github_target,
-                    "environment_name": env.get("name"),
-                    "wait_timer": 0,
-                    "reviewers": [],
-                    "deployment_branch_policy": "protected"
-                },
-                dependencies=[repo_create_id],
-                dry_run_safe=True,
-                reversible=True,
-                estimated_duration_seconds=5
-            )
-            env_action_ids[env.get("name")] = env_id
+        # Phase 2: CI/CD - Workflows, environments, secrets (if selected)
+        ci_cd_selection = component_selection.get("ci_cd", {})
+        if ci_cd_selection.get("enabled", True):
+            workflows = transform_data.get("workflows", [])
+            if ci_cd_selection.get("workflows", True):
+                for workflow in workflows:
+                    generator.add_action(
+                        action_type=ActionType.WORKFLOW_COMMIT,
+                        component="ci",
+                        phase=Phase.CI_SETUP,
+                        description=f"Commit workflow: {workflow.get('name', 'workflow.yml')}",
+                        parameters={
+                            "workflow_path": workflow.get("source_path"),
+                            "target_path": f".github/workflows/{workflow.get('name', 'workflow.yml')}",
+                            "target_repo": generator.github_target,
+                            "branch": "main",
+                            "commit_message": f"Add {workflow.get('name')} workflow (migrated from GitLab CI)"
+                        },
+                        dependencies=[repo_push_id],
+                        dry_run_safe=False,
+                        reversible=True,
+                        estimated_duration_seconds=10
+                    )
             
-            # Secrets for this environment
-            for secret in env.get("secrets", []):
-                requires_input = secret.get("masked", False) or secret.get("value") is None
-                if requires_input:
-                    user_inputs_required.append({
-                        "type": "secret_value",
-                        "key": secret.get("key"),
-                        "scope": "environment",
-                        "environment": env.get("name"),
-                        "reason": "GitLab variable was masked, value not retrievable",
-                        "required": True
-                    })
-                
-                generator.add_action(
-                    action_type=ActionType.SECRET_SET,
-                    component="ci",
-                    phase=Phase.CI_SETUP,
-                    description=f"Set secret: {secret.get('key')} ({env.get('name')})",
-                    parameters={
-                        "target_repo": generator.github_target,
-                        "secret_name": secret.get("key"),
-                        "scope": "environment",
-                        "environment": env.get("name"),
-                        "value": "${USER_INPUT_REQUIRED}" if requires_input else secret.get("value"),
-                        "value_source": "user_input" if requires_input else "export"
-                    },
-                    dependencies=[env_id],
-                    dry_run_safe=True,
-                    reversible=True,
-                    estimated_duration_seconds=3,
-                    requires_user_input=requires_input
-                )
+            # Environments
+            environments = transform_data.get("environments", [])
+            if ci_cd_selection.get("environments", True):
+                env_action_ids = {}
+                for env in environments:
+                    env_id = generator.add_action(
+                        action_type=ActionType.ENVIRONMENT_CREATE,
+                        component="ci",
+                        phase=Phase.CI_SETUP,
+                        description=f"Create environment: {env.get('name')}",
+                        parameters={
+                            "target_repo": generator.github_target,
+                            "environment_name": env.get("name"),
+                            "wait_timer": 0,
+                            "reviewers": [],
+                            "deployment_branch_policy": "protected"
+                        },
+                        dependencies=[repo_create_id],
+                        dry_run_safe=True,
+                        reversible=True,
+                        estimated_duration_seconds=5
+                    )
+                    env_action_ids[env.get("name")] = env_id
+                    
+                    # Secrets for this environment
+                    if ci_cd_selection.get("variables", True):
+                        for secret in env.get("secrets", []):
+                            requires_input = secret.get("masked", False) or secret.get("value") is None
+                            if requires_input:
+                                user_inputs_required.append({
+                                    "type": "secret_value",
+                                    "key": secret.get("key"),
+                                    "scope": "environment",
+                                    "environment": env.get("name"),
+                                    "reason": "GitLab variable was masked, value not retrievable",
+                                    "required": True
+                                })
+                            
+                            generator.add_action(
+                                action_type=ActionType.SECRET_SET,
+                                component="ci",
+                                phase=Phase.CI_SETUP,
+                                description=f"Set secret: {secret.get('key')} ({env.get('name')})",
+                                parameters={
+                                    "target_repo": generator.github_target,
+                                    "secret_name": secret.get("key"),
+                                    "scope": "environment",
+                                    "environment": env.get("name"),
+                                    "value": "${USER_INPUT_REQUIRED}" if requires_input else secret.get("value"),
+                                    "value_source": "user_input" if requires_input else "export"
+                                },
+                                dependencies=[env_id],
+                                dry_run_safe=True,
+                                reversible=True,
+                                estimated_duration_seconds=3,
+                                requires_user_input=requires_input
+                            )
         
-        # Phase 3: Issue Setup - Labels and milestones
-        labels = export_data.get("labels", [])
-        label_action_ids = {}
-        for label in labels:
-            label_id = generator.add_action(
-                action_type=ActionType.LABEL_CREATE,
-                component="issues",
-                phase=Phase.ISSUE_SETUP,
-                description=f"Create label: {label.get('name')}",
-                parameters={
-                    "target_repo": generator.github_target,
-                    "name": label.get("name"),
-                    "color": label.get("color", "000000").replace("#", ""),
-                    "description": label.get("description", "")
-                },
-                dependencies=[repo_create_id],
-                dry_run_safe=True,
-                reversible=True,
-                estimated_duration_seconds=2
-            )
-            label_action_ids[label.get("name")] = label_id
-        
-        milestones = export_data.get("milestones", [])
-        milestone_action_ids = {}
-        for milestone in milestones:
-            milestone_id = generator.add_action(
-                action_type=ActionType.MILESTONE_CREATE,
-                component="issues",
-                phase=Phase.ISSUE_SETUP,
-                description=f"Create milestone: {milestone.get('title')}",
-                parameters={
-                    "target_repo": generator.github_target,
-                    "title": milestone.get("title"),
-                    "description": milestone.get("description", ""),
-                    "due_on": milestone.get("due_date"),
-                    "state": milestone.get("state", "open")
-                },
-                dependencies=[repo_create_id],
-                dry_run_safe=True,
-                reversible=True,
-                estimated_duration_seconds=2
-            )
-            milestone_action_ids[milestone.get("title")] = milestone_id
-        
-        # Phase 4: Issue Import
-        issues = export_data.get("issues", [])
-        for issue in issues:
-            deps = [repo_create_id]
+        # Phase 3: Issue Setup - Labels and milestones (if selected)
+        issues_selection = component_selection.get("issues", {})
+        if issues_selection.get("enabled", True):
+            labels = export_data.get("labels", [])
+            label_action_ids = {}
+            if issues_selection.get("labels", True):
+                for label in labels:
+                    label_id = generator.add_action(
+                        action_type=ActionType.LABEL_CREATE,
+                        component="issues",
+                        phase=Phase.ISSUE_SETUP,
+                        description=f"Create label: {label.get('name')}",
+                        parameters={
+                            "target_repo": generator.github_target,
+                            "name": label.get("name"),
+                            "color": label.get("color", "000000").replace("#", ""),
+                            "description": label.get("description", "")
+                        },
+                        dependencies=[repo_create_id],
+                        dry_run_safe=True,
+                        reversible=True,
+                        estimated_duration_seconds=2
+                    )
+                    label_action_ids[label.get("name")] = label_id
             
-            # Add label dependencies
-            issue_labels = issue.get("labels", [])
-            for label_name in issue_labels:
-                if label_name in label_action_ids:
-                    deps.append(label_action_ids[label_name])
+            milestones = export_data.get("milestones", [])
+            milestone_action_ids = {}
+            if issues_selection.get("milestones", True):
+                for milestone in milestones:
+                    milestone_id = generator.add_action(
+                        action_type=ActionType.MILESTONE_CREATE,
+                        component="issues",
+                        phase=Phase.ISSUE_SETUP,
+                        description=f"Create milestone: {milestone.get('title')}",
+                        parameters={
+                            "target_repo": generator.github_target,
+                            "title": milestone.get("title"),
+                            "description": milestone.get("description", ""),
+                            "due_on": milestone.get("due_date"),
+                            "state": milestone.get("state", "open")
+                        },
+                        dependencies=[repo_create_id],
+                        dry_run_safe=True,
+                        reversible=True,
+                        estimated_duration_seconds=2
+                    )
+                    milestone_action_ids[milestone.get("title")] = milestone_id
             
-            # Add milestone dependency
-            issue_milestone = issue.get("milestone")
-            if issue_milestone and issue_milestone in milestone_action_ids:
-                deps.append(milestone_action_ids[issue_milestone])
-            
-            # Keep full title (GitHub supports up to 256 chars)
-            generator.add_action(
-                action_type=ActionType.ISSUE_CREATE,
+            # Phase 4: Issue Import
+            issues = export_data.get("issues", [])
+            # Filter issues based on selection
+            if issues_selection.get("open", True) or issues_selection.get("closed", False):
+                for issue in issues:
+                    # Skip closed issues if not selected
+                    is_closed = issue.get("state") == "closed"
+                    if is_closed and not issues_selection.get("closed", False):
+                        continue
+                    if not is_closed and not issues_selection.get("open", True):
+                        continue
+                    
+                    deps = [repo_create_id]
+                    
+                    # Add label dependencies
+                    issue_labels = issue.get("labels", [])
+                    for label_name in issue_labels:
+                        if label_name in label_action_ids:
+                            deps.append(label_action_ids[label_name])
+                    
+                    # Add milestone dependency
+                    issue_milestone = issue.get("milestone")
+                    if issue_milestone and issue_milestone in milestone_action_ids:
+                        deps.append(milestone_action_ids[issue_milestone])
+                    
+                    # Keep full title (GitHub supports up to 256 chars)
+                    generator.add_action(
+                        action_type=ActionType.ISSUE_CREATE,
                 component="issues",
                 phase=Phase.ISSUE_IMPORT,
                 description=f"Import issue #{issue.get('iid')}: {issue.get('title', 'Untitled')[:80]}{'...' if len(issue.get('title', '')) > 80 else ''}",
@@ -747,46 +787,56 @@ class PlanAgent(BaseAgent):
                 estimated_duration_seconds=5
             )
         
-        # Phase 5: PR Import
-        merge_requests = export_data.get("merge_requests", [])
-        default_branch = export_data.get("default_branch", "main")
-        
-        for mr in merge_requests:
-            deps = [repo_push_id]
+        # Phase 5: PR Import (if selected)
+        mr_selection = component_selection.get("merge_requests", {})
+        if mr_selection.get("enabled", False):
+            merge_requests = export_data.get("merge_requests", [])
+            default_branch = export_data.get("default_branch", "main")
             
-            # Add label dependencies
-            mr_labels = mr.get("labels", [])
-            for label_name in mr_labels:
-                if label_name in label_action_ids:
-                    deps.append(label_action_ids[label_name])
-            
-            # Keep full title (GitHub supports up to 256 chars)
-            generator.add_action(
-                action_type=ActionType.PR_CREATE,
-                component="pull_requests",
-                phase=Phase.PR_IMPORT,
-                description=f"Import MR !{mr.get('iid')} as PR: {mr.get('title', 'Untitled')[:80]}{'...' if len(mr.get('title', '')) > 80 else ''}",
-                parameters={
-                    "target_repo": generator.github_target,
-                    "gitlab_mr_iid": mr.get("iid"),
-                    "title": mr.get("title"),
-                    "body": mr.get("description", ""),
-                    "head": mr.get("source_branch"),
-                    "base": mr.get("target_branch", default_branch),
-                    "labels": mr_labels,
-                    "reviewers": mr.get("reviewers", []),
-                    "state": mr.get("state", "open"),
-                    "comments": mr.get("comments", []),
-                    "ensure_branch_exists": True
-                },
-                dependencies=deps,
-                dry_run_safe=False,
-                reversible=False,
-                estimated_duration_seconds=10
-            )
+            for mr in merge_requests:
+                # Filter based on state selection
+                mr_state = mr.get("state", "opened")
+                if mr_state == "opened" and not mr_selection.get("open", False):
+                    continue
+                if mr_state == "merged" and not mr_selection.get("merged", False):
+                    continue
+                
+                deps = [repo_push_id]
+                
+                # Add label dependencies
+                mr_labels = mr.get("labels", [])
+                for label_name in mr_labels:
+                    if label_name in label_action_ids:
+                        deps.append(label_action_ids[label_name])
+                
+                # Keep full title (GitHub supports up to 256 chars)
+                generator.add_action(
+                    action_type=ActionType.PR_CREATE,
+                    component="pull_requests",
+                    phase=Phase.PR_IMPORT,
+                    description=f"Import MR !{mr.get('iid')} as PR: {mr.get('title', 'Untitled')[:80]}{'...' if len(mr.get('title', '')) > 80 else ''}",
+                    parameters={
+                        "target_repo": generator.github_target,
+                        "gitlab_mr_iid": mr.get("iid"),
+                        "title": mr.get("title"),
+                        "body": mr.get("description", ""),
+                        "head": mr.get("source_branch"),
+                        "base": mr.get("target_branch", default_branch),
+                        "labels": mr_labels,
+                        "reviewers": mr.get("reviewers", []),
+                        "state": mr.get("state", "open"),
+                        "comments": mr.get("comments", []),
+                        "ensure_branch_exists": True
+                    },
+                    dependencies=deps,
+                    dry_run_safe=False,
+                    reversible=False,
+                    estimated_duration_seconds=10
+                )
         
-        # Phase 6: Wiki Import
-        if export_data.get("has_wiki", False):
+        # Phase 6: Wiki Import (if selected)
+        wiki_selection = component_selection.get("wiki", {})
+        if wiki_selection.get("enabled", True) and export_data.get("has_wiki", False):
             generator.add_action(
                 action_type=ActionType.WIKI_PUSH,
                 component="wiki",
@@ -803,75 +853,80 @@ class PlanAgent(BaseAgent):
                 skip_if={"condition": "no_wiki", "check": "wiki_pages_count == 0"}
             )
         
-        # Phase 7: Release Import
-        releases = export_data.get("releases", [])
-        for release in releases:
-            tag_name = release.get("tag_name")
-            
-            # Create release
-            release_action_id = generator.add_action(
-                action_type=ActionType.RELEASE_CREATE,
-                component="releases",
-                phase=Phase.RELEASE_IMPORT,
-                description=f"Create release: {tag_name}",
-                parameters={
-                    "target_repo": generator.github_target,
-                    "tag": tag_name,
-                    "name": release.get("name"),
-                    "body": release.get("description", ""),
-                    "draft": False,
-                    "prerelease": False,
-                    "gitlab_release_id": release.get("id")
-                },
-                dependencies=[repo_push_id],
-                dry_run_safe=False,
-                reversible=True,
-                estimated_duration_seconds=20
-            )
-            
-            # Upload release assets
-            assets = release.get("assets", {})
-            links = assets.get("links", []) if isinstance(assets, dict) else []
-            
-            for asset in links:
-                local_path = asset.get("local_path")
-                asset_name = asset.get("name")
+        # Phase 7: Release Import (if selected)
+        releases_selection = component_selection.get("releases", {})
+        if releases_selection.get("enabled", True):
+            releases = export_data.get("releases", [])
+            for release in releases:
+                tag_name = release.get("tag_name")
                 
-                # Only create upload action if asset was downloaded
-                if local_path and asset_name:
-                    generator.add_action(
-                        action_type=ActionType.RELEASE_ASSET_UPLOAD,
-                        component="releases",
-                        phase=Phase.RELEASE_IMPORT,
-                        description=f"Upload asset: {tag_name}/{asset_name}",
-                        parameters={
-                            "target_repo": generator.github_target,
-                            "release_tag": tag_name,
-                            "asset_path": local_path,
-                            "asset_name": asset_name,
-                            "content_type": asset.get("content_type", "application/octet-stream")
-                        },
-                        dependencies=[release_action_id],
-                        dry_run_safe=False,
-                        reversible=True,
-                        estimated_duration_seconds=10
-                    )
+                # Create release
+                release_action_id = generator.add_action(
+                    action_type=ActionType.RELEASE_CREATE,
+                    component="releases",
+                    phase=Phase.RELEASE_IMPORT,
+                    description=f"Create release: {tag_name}",
+                    parameters={
+                        "target_repo": generator.github_target,
+                        "tag": tag_name,
+                        "name": release.get("name"),
+                        "body": release.get("description", ""),
+                        "draft": False,
+                        "prerelease": False,
+                        "gitlab_release_id": release.get("id")
+                    },
+                    dependencies=[repo_push_id],
+                    dry_run_safe=False,
+                    reversible=True,
+                    estimated_duration_seconds=20
+                )
+                
+                # Upload release assets (if selected)
+                if releases_selection.get("assets", False):
+                    assets = release.get("assets", {})
+                    links = assets.get("links", []) if isinstance(assets, dict) else []
+                    
+                    for asset in links:
+                        local_path = asset.get("local_path")
+                        asset_name = asset.get("name")
+                        
+                        # Only create upload action if asset was downloaded
+                        if local_path and asset_name:
+                            generator.add_action(
+                                action_type=ActionType.RELEASE_ASSET_UPLOAD,
+                                component="releases",
+                                phase=Phase.RELEASE_IMPORT,
+                                description=f"Upload asset: {tag_name}/{asset_name}",
+                                parameters={
+                                    "target_repo": generator.github_target,
+                                    "release_tag": tag_name,
+                                    "asset_path": local_path,
+                                    "asset_name": asset_name,
+                                    "content_type": asset.get("content_type", "application/octet-stream")
+                                },
+                                dependencies=[release_action_id],
+                                dry_run_safe=False,
+                                reversible=True,
+                                estimated_duration_seconds=10
+                            )
         
-        # Phase 8: Package Import
-        # Read packages from export directory
-        output_dir = Path(export_data.get("output_dir", ""))
-        packages_file = output_dir / "packages" / "packages.json"
-        packages = []
-        
-        if packages_file.exists():
-            try:
-                with open(packages_file, 'r') as f:
-                    packages = json.load(f)
-                self.log_event("INFO", f"Loaded {len(packages)} packages from export")
-            except Exception as e:
-                self.log_event("WARNING", f"Failed to load packages.json: {e}")
-        
-        for package in packages:
+        # Phase 8: Package Import (if selected)
+        packages_selection = component_selection.get("packages", {})
+        if packages_selection.get("enabled", False):
+            # Read packages from export directory
+            output_dir = Path(export_data.get("output_dir", ""))
+            packages_file = output_dir / "packages" / "packages.json"
+            packages = []
+            
+            if packages_file.exists():
+                try:
+                    with open(packages_file, 'r') as f:
+                        packages = json.load(f)
+                    self.log_event("INFO", f"Loaded {len(packages)} packages from export")
+                except Exception as e:
+                    self.log_event("WARNING", f"Failed to load packages.json: {e}")
+            
+            for package in packages:
             package_id = package.get("id")
             package_name = package.get("name", "unknown")
             package_type = package.get("package_type", "unknown")

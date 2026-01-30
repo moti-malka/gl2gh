@@ -118,6 +118,11 @@ def run_migration(run_id: str, mode: str, config: dict):
         # Add run_id to config
         config["run_id"] = run_id
         
+        # Load component selection from run if available
+        run = await_func(run_service.get_run(run_id))
+        if run and run.selection:
+            config["component_selection"] = run.selection
+        
         # Define a callback to update status during workflow
         async def update_stage(stage: str):
             nonlocal completed_stages
