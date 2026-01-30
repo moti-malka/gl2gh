@@ -714,25 +714,56 @@ class PlanAgent(BaseAgent):
         # Phase 7: Release Import
         releases = export_data.get("releases", [])
         for release in releases:
-            generator.add_action(
+            tag_name = release.get("tag_name")
+            
+            # Create release
+            release_action_id = generator.add_action(
                 action_type=ActionType.RELEASE_CREATE,
                 component="releases",
                 phase=Phase.RELEASE_IMPORT,
-                description=f"Create release: {release.get('tag_name')}",
+                description=f"Create release: {tag_name}",
                 parameters={
                     "target_repo": generator.github_target,
-                    "tag_name": release.get("tag_name"),
+                    "tag": tag_name,
                     "name": release.get("name"),
                     "body": release.get("description", ""),
                     "draft": False,
                     "prerelease": False,
-                    "assets": release.get("assets", [])
+                    "gitlab_release_id": release.get("id")
                 },
                 dependencies=[repo_push_id],
                 dry_run_safe=False,
                 reversible=True,
                 estimated_duration_seconds=20
             )
+            
+            # Upload release assets
+            assets = release.get("assets", {})
+            links = assets.get("links", []) if isinstance(assets, dict) else []
+            
+            for asset in links:
+                local_path = asset.get("local_path")
+                asset_name = asset.get("name")
+                
+                # Only create upload action if asset was downloaded
+                if local_path and asset_name:
+                    generator.add_action(
+                        action_type=ActionType.RELEASE_ASSET_UPLOAD,
+                        component="releases",
+                        phase=Phase.RELEASE_IMPORT,
+                        description=f"Upload asset: {tag_name}/{asset_name}",
+                        parameters={
+                            "target_repo": generator.github_target,
+                            "release_tag": tag_name,
+                            "asset_path": local_path,
+                            "asset_name": asset_name,
+                            "content_type": asset.get("content_type", "application/octet-stream")
+                        },
+                        dependencies=[release_action_id],
+                        dry_run_safe=False,
+                        reversible=True,
+                        estimated_duration_seconds=10
+                    )
         
         # Phase 8: Package Import
         packages = export_data.get("packages", [])

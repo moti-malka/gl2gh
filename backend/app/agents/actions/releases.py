@@ -103,14 +103,14 @@ class UploadReleaseAssetAction(BaseAction):
             # Find release by tag or ID mapping
             release_id = None
             if release_tag:
-                # Get releases and find by tag
-                releases = await self.github_client.list_releases(target_repo)
-                for release in releases:
-                    if release["tag_name"] == release_tag:
-                        release_id = release["id"]
+                # Find release by tag name - iterate through releases
+                release = None
+                for r in repo.get_releases():
+                    if r.tag_name == release_tag:
+                        release = r
                         break
-                if not release_id:
-                    raise ValueError(f"Release not found for tag: {release_tag}")
+                if not release:
+                    raise ValueError(f"Could not find GitHub release with tag: {release_tag}")
             elif gitlab_release_id:
                 release_id = self.get_id_mapping("release", gitlab_release_id)
                 if not release_id:
@@ -119,10 +119,11 @@ class UploadReleaseAssetAction(BaseAction):
                 raise ValueError("Either release_tag or gitlab_release_id must be provided")
             
             # Upload asset
-            asset = await self.github_client.upload_release_asset(
-                release_id=release_id,
-                file_path=str(asset_path),
-                repo=target_repo
+            # PyGithub's upload_asset reads the file directly from path
+            asset = release.upload_asset(
+                path=str(asset_path),
+                label=asset_name,
+                content_type=content_type
             )
             
             return ActionResult(

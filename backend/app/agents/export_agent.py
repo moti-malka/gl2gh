@@ -804,13 +804,57 @@ class ExportAgent(BaseAgent):
             
             releases = await self.gitlab_client.list_releases(project_id)
             
+            # Download release assets
+            total_assets = 0
+            failed_downloads = []
+            
+            for release in releases:
+                tag_name = release.get("tag_name", "unknown")
+                release_dir = releases_dir / tag_name
+                release_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Download each asset
+                assets = release.get("assets", {})
+                links = assets.get("links", []) if isinstance(assets, dict) else []
+                
+                for asset in links:
+                    asset_url = asset.get("url")
+                    asset_name = asset.get("name")
+                    
+                    if not asset_url or not asset_name:
+                        continue
+                    
+                    asset_path = release_dir / asset_name
+                    logger.info(f"Downloading release asset: {tag_name}/{asset_name}")
+                    
+                    success = await self.gitlab_client.download_file(
+                        asset_url,
+                        asset_path
+                    )
+                    
+                    if success:
+                        # Store local path for later upload
+                        asset["local_path"] = str(asset_path)
+                        total_assets += 1
+                    else:
+                        failed_downloads.append(f"{tag_name}/{asset_name}")
+                        logger.warning(f"Failed to download asset: {tag_name}/{asset_name}")
+            
+            # Save releases metadata with local paths
             with open(releases_dir / "releases.json", 'w') as f:
                 json.dump(releases, f, indent=2)
             
-            return {
+            result = {
                 "success": True,
-                "count": len(releases)
+                "count": len(releases),
+                "assets_downloaded": total_assets
             }
+            
+            if failed_downloads:
+                result["failed_downloads"] = failed_downloads
+                result["warning"] = f"Failed to download {len(failed_downloads)} assets"
+            
+            return result
             
         except Exception as e:
             return {"success": False, "error": str(e)}
