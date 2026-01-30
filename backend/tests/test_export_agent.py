@@ -124,8 +124,26 @@ build:
     
     # Mock releases
     client.list_releases.return_value = [
-        {"tag_name": "v1.0.0", "name": "Release 1.0.0"}
+        {
+            "tag_name": "v1.0.0", 
+            "name": "Release 1.0.0",
+            "assets": {
+                "links": [
+                    {
+                        "name": "myapp-linux-amd64",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/myapp-linux-amd64"
+                    },
+                    {
+                        "name": "myapp-darwin-amd64",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/myapp-darwin-amd64"
+                    }
+                ]
+            }
+        }
     ]
+    
+    # Mock file download
+    client.download_file = AsyncMock(return_value=True)
     
     # Mock packages
     client.list_packages.return_value = [
@@ -304,9 +322,60 @@ async def test_export_releases(export_agent, mock_gitlab_client, tmp_path):
     
     assert result["success"] is True
     assert result["count"] == 1
+    assert result["assets_downloaded"] == 2
     
     releases_file = output_dir / "releases" / "releases.json"
     assert releases_file.exists()
+    
+    # Verify asset download was called
+    assert mock_gitlab_client.download_file.call_count == 2
+    
+    # Verify release directory structure
+    release_dir = output_dir / "releases" / "v1.0.0"
+    assert release_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_export_releases_with_failed_downloads(export_agent, tmp_path):
+    """Test releases export with failed asset downloads"""
+    # Create a mock client with mixed success/failure
+    mock_client = AsyncMock()
+    mock_client.list_releases.return_value = [
+        {
+            "tag_name": "v1.0.0",
+            "name": "Release 1.0.0",
+            "assets": {
+                "links": [
+                    {
+                        "name": "success-file",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/success-file"
+                    },
+                    {
+                        "name": "failed-file",
+                        "url": "https://gitlab.com/test/project/releases/v1.0.0/failed-file"
+                    }
+                ]
+            }
+        }
+    ]
+    
+    # Mock download_file to succeed once and fail once
+    mock_client.download_file = AsyncMock(side_effect=[True, False])
+    
+    export_agent.gitlab_client = mock_client
+    output_dir = tmp_path / "export"
+    output_dir.mkdir(parents=True)
+    export_agent._create_directory_structure(output_dir)
+    
+    project = {"id": 123}
+    result = await export_agent._export_releases(123, project, output_dir)
+    
+    assert result["success"] is True
+    assert result["count"] == 1
+    assert result["assets_downloaded"] == 1
+    assert "failed_downloads" in result
+    assert len(result["failed_downloads"]) == 1
+    assert "v1.0.0/failed-file" in result["failed_downloads"]
 
 
 @pytest.mark.asyncio

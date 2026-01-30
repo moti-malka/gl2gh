@@ -84,12 +84,12 @@ class UploadReleaseAssetAction(BaseAction):
                 raise ValueError("Either release_tag or gitlab_release_id must be provided")
             
             # Upload asset
-            with open(asset_path, "rb") as f:
-                asset = release.upload_asset(
-                    path=str(asset_path),
-                    label=asset_name,
-                    content_type=content_type
-                )
+            # PyGithub's upload_asset reads the file directly from path
+            asset = release.upload_asset(
+                path=str(asset_path),
+                label=asset_name,
+                content_type=content_type
+            )
             
             return ActionResult(
                 success=True,
