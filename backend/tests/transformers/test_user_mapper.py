@@ -251,3 +251,102 @@ class TestUserMapper:
         assert summary["by_method"]["username"] == 1
         assert summary["by_method"]["name"] == 1
         assert summary["by_method"]["none"] == 1
+    
+    def test_fuzzy_username_match(self):
+        """Test fuzzy username matching"""
+        gitlab_users = [
+            {
+                "id": 1,
+                "username": "john.doe",
+                "email": "john1@example.com",
+                "name": "John Doe"
+            }
+        ]
+        
+        github_users = [
+            {
+                "login": "johndoe",  # Similar but not exact
+                "id": 101,
+                "email": "john2@example.com",
+                "name": "John Doe"
+            }
+        ]
+        
+        result = self.mapper.transform({
+            "gitlab_users": gitlab_users,
+            "github_users": github_users
+        })
+        
+        assert result.success
+        mappings = result.data["mappings"]
+        assert len(mappings) == 1
+        
+        mapping = mappings[0]
+        # Should match via fuzzy username matching
+        assert mapping["github"] is not None
+        assert mapping["github"]["login"] == "johndoe"
+        assert mapping["confidence"] in ["medium", "low"]  # Fuzzy match is medium/low confidence
+    
+    def test_fuzzy_name_match(self):
+        """Test fuzzy name matching"""
+        gitlab_users = [
+            {
+                "id": 1,
+                "username": "jdoe123",
+                "email": "jd@example.com",
+                "name": "John-Michael Doe"
+            }
+        ]
+        
+        github_users = [
+            {
+                "login": "jmdoe",
+                "id": 101,
+                "email": "jm@example.com",
+                "name": "John Michael Doe"  # Similar name without hyphen
+            }
+        ]
+        
+        result = self.mapper.transform({
+            "gitlab_users": gitlab_users,
+            "github_users": github_users
+        })
+        
+        assert result.success
+        mappings = result.data["mappings"]
+        assert len(mappings) == 1
+        
+        mapping = mappings[0]
+        # Should match via fuzzy name matching
+        assert mapping["github"] is not None
+        assert mapping["github"]["login"] == "jmdoe"
+        assert mapping["confidence"] == "low"  # Name fuzzy match is low confidence
+    
+    def test_normalization_helpers(self):
+        """Test name and username normalization"""
+        # Test name normalization
+        assert self.mapper._normalize_name("John-Michael.Doe") == "john michael doe"
+        assert self.mapper._normalize_name("  John  Doe  ") == "john doe"
+        assert self.mapper._normalize_name("John_Doe") == "john doe"
+        
+        # Test username normalization
+        assert self.mapper._normalize_username("john.doe") == "johndoe"
+        assert self.mapper._normalize_username("john-doe") == "johndoe"
+        assert self.mapper._normalize_username("john_doe") == "johndoe"
+    
+    def test_similarity_calculation(self):
+        """Test similarity calculation"""
+        # Identical strings
+        assert self.mapper._calculate_similarity("johndoe", "johndoe") == 1.0
+        
+        # Very similar strings
+        similarity = self.mapper._calculate_similarity("johndoe", "john.doe")
+        assert similarity > 0.7  # Should be high similarity
+        
+        # Different strings
+        similarity = self.mapper._calculate_similarity("johndoe", "janedoe")
+        assert 0.5 < similarity < 0.9  # Moderate similarity
+        
+        # Empty strings
+        assert self.mapper._calculate_similarity("", "") == 0.0
+        assert self.mapper._calculate_similarity("test", "") == 0.0

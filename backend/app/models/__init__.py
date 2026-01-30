@@ -181,11 +181,13 @@ class Artifact(MongoBaseModel):
 # User Mapping Models
 class UserMapping(MongoBaseModel):
     """User mapping model for GitLab to GitHub user mapping"""
+    project_id: Optional[PyObjectId] = None  # Optional project-level mapping
     run_id: PyObjectId
     gitlab_username: str
     gitlab_email: Optional[str] = None
     github_username: Optional[str] = None
     confidence: float = 0.0  # 0.0 to 1.0
+    match_method: Optional[str] = None  # email, username, name, fuzzy_username, fuzzy_name, manual
     is_manual: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
