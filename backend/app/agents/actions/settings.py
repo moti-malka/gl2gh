@@ -47,6 +47,10 @@ class SetBranchProtectionAction(BaseAction):
                     "branch": branch_name,
                     "target_repo": target_repo,
                     "protected": True
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "branch": branch_name
                 }
             )
         except GithubException as e:
@@ -65,6 +69,32 @@ class SetBranchProtectionAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback branch protection by removing it"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            branch_name = rollback_data.get("branch")
+            
+            if not target_repo or not branch_name:
+                self.logger.error("Missing target_repo or branch in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Removing branch protection from {branch_name} in {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            branch = repo.get_branch(branch_name)
+            branch.remove_protection()
+            self.logger.info(f"Successfully removed branch protection from {branch_name}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Branch protection not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback branch protection: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback branch protection: {str(e)}")
+            return False
 
 
 class AddCollaboratorAction(BaseAction):
@@ -87,6 +117,10 @@ class AddCollaboratorAction(BaseAction):
                     "username": username,
                     "permission": permission,
                     "target_repo": target_repo
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "username": username
                 }
             )
         except GithubException as e:
@@ -105,6 +139,31 @@ class AddCollaboratorAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback collaborator addition by removing them"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            username = rollback_data.get("username")
+            
+            if not target_repo or not username:
+                self.logger.error("Missing target_repo or username in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Removing collaborator {username} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            repo.remove_from_collaborators(username)
+            self.logger.info(f"Successfully removed collaborator {username}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Collaborator {username} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback collaborator addition: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback collaborator addition: {str(e)}")
+            return False
 
 
 class CreateWebhookAction(BaseAction):
@@ -152,6 +211,10 @@ class CreateWebhookAction(BaseAction):
                     "webhook_url": url,
                     "events": events,
                     "target_repo": target_repo
+                },
+                rollback_data={
+                    "target_repo": target_repo,
+                    "webhook_id": hook.id
                 }
             )
         except Exception as e:
@@ -162,3 +225,29 @@ class CreateWebhookAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+    
+    async def rollback(self, rollback_data: Dict[str, Any]) -> bool:
+        """Rollback webhook creation by deleting it"""
+        try:
+            target_repo = rollback_data.get("target_repo")
+            webhook_id = rollback_data.get("webhook_id")
+            
+            if not target_repo or not webhook_id:
+                self.logger.error("Missing target_repo or webhook_id in rollback_data")
+                return False
+            
+            self.logger.info(f"Rolling back: Deleting webhook {webhook_id} from {target_repo}")
+            repo = self.github_client.get_repo(target_repo)
+            hook = repo.get_hook(webhook_id)
+            hook.delete()
+            self.logger.info(f"Successfully deleted webhook {webhook_id}")
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                self.logger.warning(f"Webhook {webhook_id} not found during rollback")
+                return True
+            self.logger.error(f"Failed to rollback webhook creation: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to rollback webhook creation: {str(e)}")
+            return False
