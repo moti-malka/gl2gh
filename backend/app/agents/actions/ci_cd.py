@@ -4,7 +4,7 @@ from typing import Any, Dict
 from pathlib import Path
 import base64
 from .base import BaseAction, ActionResult
-from github import GithubException
+import httpx
 
 
 class CommitWorkflowAction(BaseAction):
@@ -25,32 +25,46 @@ class CommitWorkflowAction(BaseAction):
             with open(workflow_path_local, "r") as f:
                 content = f.read()
             
-            repo = self.github_client.get_repo(target_repo)
-            
             # Try to get existing file
             try:
-                existing_file = repo.get_contents(target_path, ref=branch)
-                # Update existing file
-                repo.update_file(
+                existing_content = await self.github_client.get_file_content(
+                    repo=target_repo,
                     path=target_path,
-                    message=commit_message,
+                    ref=branch
+                )
+                if existing_content:
+                    # Get SHA for update
+                    owner, repo = target_repo.split("/")
+                    response = await self.github_client._request(
+                        'GET',
+                        f"/repos/{target_repo}/contents/{target_path}",
+                        params={"ref": branch}
+                    )
+                    file_data = response.json()
+                    sha = file_data["sha"]
+                    
+                    # Update existing file
+                    await self.github_client.create_or_update_file(
+                        repo=target_repo,
+                        path=target_path,
+                        content=content,
+                        message=commit_message,
+                        branch=branch,
+                        sha=sha
+                    )
+                    action = "updated"
+                else:
+                    raise FileNotFoundError()
+            except (FileNotFoundError, httpx.HTTPStatusError) as e:
+                # Create new file
+                await self.github_client.create_or_update_file(
+                    repo=target_repo,
+                    path=target_path,
                     content=content,
-                    sha=existing_file.sha,
+                    message=commit_message,
                     branch=branch
                 )
-                action = "updated"
-            except GithubException as e:
-                if e.status == 404:
-                    # Create new file
-                    repo.create_file(
-                        path=target_path,
-                        message=commit_message,
-                        content=content,
-                        branch=branch
-                    )
-                    action = "created"
-                else:
-                    raise
+                action = "created"
             
             return ActionResult(
                 success=True,
@@ -80,12 +94,11 @@ class CreateEnvironmentAction(BaseAction):
             target_repo = self.parameters["target_repo"]
             environment_name = self.parameters["name"]
             
-            repo = self.github_client.get_repo(target_repo)
-            
-            # NOTE: Full environment creation with protection rules requires REST API
-            # PyGithub doesn't have complete support for Environments API yet
-            # This is a placeholder that logs the intent
-            self.logger.warning(f"Environment creation not fully implemented - manual setup required for: {environment_name}")
+            # Create environment using GitHubClient
+            await self.github_client.create_environment(
+                repo=target_repo,
+                environment_name=environment_name
+            )
             
             return ActionResult(
                 success=True,
@@ -93,8 +106,7 @@ class CreateEnvironmentAction(BaseAction):
                 action_type=self.action_type,
                 outputs={
                     "environment_name": environment_name,
-                    "target_repo": target_repo,
-                    "note": "Environment needs manual creation via REST API - protection rules not supported by PyGithub"
+                    "target_repo": target_repo
                 }
             )
         except Exception as e:
@@ -115,7 +127,7 @@ class SetSecretAction(BaseAction):
             target_repo = self.parameters["target_repo"]
             secret_name = self.parameters["name"]
             secret_value = self.parameters.get("value")
-            scope = self.parameters.get("scope", "repository")  # repository or environment
+            scope = self.parameters.get("scope", "repository")
             environment_name = self.parameters.get("environment")
             
             if not secret_value:
@@ -127,17 +139,15 @@ class SetSecretAction(BaseAction):
                     error=f"Secret value not provided for {secret_name}. User input required."
                 )
             
-            repo = self.github_client.get_repo(target_repo)
-            
             # Get repository public key
-            public_key = repo.get_public_key()
+            public_key = await self.github_client.get_public_key(target_repo)
             
             # Encrypt secret value (requires PyNaCl)
             try:
                 from nacl import encoding, public
                 
                 public_key_obj = public.PublicKey(
-                    public_key.key.encode("utf-8"), 
+                    public_key["key"].encode("utf-8"),
                     encoding.Base64Encoder()
                 )
                 sealed_box = public.SealedBox(public_key_obj)
@@ -145,7 +155,23 @@ class SetSecretAction(BaseAction):
                 encrypted_value = base64.b64encode(encrypted).decode("utf-8")
                 
                 # Create or update secret
-                repo.create_secret(secret_name, encrypted_value, public_key.key_id)
+                if scope == "environment" and environment_name:
+                    success = await self.github_client.create_environment_secret(
+                        repo=target_repo,
+                        environment_name=environment_name,
+                        secret_name=secret_name,
+                        encrypted_value=encrypted_value
+                    )
+                else:
+                    success = await self.github_client.create_or_update_secret(
+                        repo=target_repo,
+                        secret_name=secret_name,
+                        encrypted_value=encrypted_value,
+                        key_id=public_key["key_id"]
+                    )
+                
+                if not success:
+                    raise Exception("Failed to create secret")
                 
                 return ActionResult(
                     success=True,

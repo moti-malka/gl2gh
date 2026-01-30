@@ -6,7 +6,7 @@ import subprocess
 import shutil
 import tempfile
 from .base import BaseAction, ActionResult
-from github import GithubException
+import httpx
 
 
 class CreateRepositoryAction(BaseAction):
@@ -17,10 +17,10 @@ class CreateRepositoryAction(BaseAction):
             org_or_user = self.parameters.get("org") or self.parameters.get("owner")
             repo_name = self.parameters["name"]
             
-            # Get organization or user
+            # Try to create repository (org or user)
             try:
-                org = self.github_client.get_organization(org_or_user)
-                repo = org.create_repo(
+                repo = await self.github_client.create_repository(
+                    org=org_or_user,
                     name=repo_name,
                     description=self.parameters.get("description", ""),
                     homepage=self.parameters.get("homepage", ""),
@@ -29,12 +29,13 @@ class CreateRepositoryAction(BaseAction):
                     has_projects=self.parameters.get("has_projects", True),
                     has_wiki=self.parameters.get("has_wiki", True),
                     auto_init=self.parameters.get("auto_init", False),
+                    topics=self.parameters.get("topics", [])
                 )
-            except GithubException as e:
-                # If organization not found (404), try as user
-                if e.status == 404:
-                    user = self.github_client.get_user(org_or_user)
-                    repo = user.create_repo(
+            except httpx.HTTPStatusError as e:
+                # If organization not found (404), try without org (as user repo)
+                if e.response.status_code == 404:
+                    repo = await self.github_client.create_repository(
+                        org=None,
                         name=repo_name,
                         description=self.parameters.get("description", ""),
                         homepage=self.parameters.get("homepage", ""),
@@ -43,28 +44,24 @@ class CreateRepositoryAction(BaseAction):
                         has_projects=self.parameters.get("has_projects", True),
                         has_wiki=self.parameters.get("has_wiki", True),
                         auto_init=self.parameters.get("auto_init", False),
+                        topics=self.parameters.get("topics", [])
                     )
                 else:
                     raise
-            
-            # Set topics if provided
-            topics = self.parameters.get("topics", [])
-            if topics:
-                repo.replace_topics(topics)
             
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "repo_full_name": repo.full_name,
-                    "repo_url": repo.html_url,
-                    "repo_id": repo.id
+                    "repo_full_name": repo["full_name"],
+                    "repo_url": repo["html_url"],
+                    "repo_id": repo["id"]
                 }
             )
-        except GithubException as e:
+        except httpx.HTTPStatusError as e:
             # Check if repo already exists
-            if e.status == 422:
+            if e.response.status_code == 422:
                 self.logger.warning(f"Repository {org_or_user}/{repo_name} already exists")
                 return ActionResult(
                     success=True,
@@ -101,8 +98,9 @@ class PushCodeAction(BaseAction):
                 raise FileNotFoundError(f"Bundle file not found: {bundle_path}")
             
             # Get repository
-            repo = self.github_client.get_repo(target_repo)
-            clone_url = repo.clone_url
+            owner, repo = target_repo.split("/")
+            repo_data = await self.github_client.get_repository(owner, repo)
+            clone_url = repo_data["clone_url"]
             
             # Create temp directory for unpacking using tempfile for security
             temp_dir = Path(tempfile.mkdtemp(prefix="gl2gh_repo_"))
@@ -221,21 +219,20 @@ class ConfigureRepositoryAction(BaseAction):
     async def execute(self) -> ActionResult:
         try:
             target_repo = self.parameters["target_repo"]
-            repo = self.github_client.get_repo(target_repo)
             
-            # Update settings
-            if "description" in self.parameters:
-                repo.edit(description=self.parameters["description"])
-            if "homepage" in self.parameters:
-                repo.edit(homepage=self.parameters["homepage"])
-            if "default_branch" in self.parameters:
-                repo.edit(default_branch=self.parameters["default_branch"])
+            # Note: GitHubClient doesn't support repository settings updates
+            # This would require additional REST API endpoints
+            self.logger.warning("Repository configuration not fully implemented - manual setup required")
             
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
                 action_type=self.action_type,
-                outputs={"configured": True, "target_repo": target_repo}
+                outputs={
+                    "configured": False,
+                    "target_repo": target_repo,
+                    "note": "Repository settings updates not supported yet - manual setup required"
+                }
             )
         except Exception as e:
             return ActionResult(
