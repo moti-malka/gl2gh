@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from app.agents.transform_agent import TransformAgent
-from app.utils.transformers import TransformResult
+from app.utils.transformers import TransformationResult
 
 
 @pytest.fixture
@@ -130,7 +130,7 @@ class TestTransformAgent:
         }
         
         # Mock the transformer
-        mock_result = TransformResult(
+        mock_result = TransformationResult(
             success=True,
             data={
                 "workflow_yaml": "name: CI\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo 'Building'"
@@ -158,7 +158,7 @@ class TestTransformAgent:
         """Test CI/CD transformation failure"""
         gitlab_ci = {"invalid": "config"}
         
-        mock_result = TransformResult(
+        mock_result = TransformationResult(
             success=False,
             data={},
             metadata={},
@@ -193,7 +193,7 @@ class TestTransformAgent:
             }
         ]
         
-        mock_result = TransformResult(
+        mock_result = TransformationResult(
             success=True,
             data={
                 "mappings": [
@@ -237,7 +237,7 @@ class TestTransformAgent:
             }
         ]
         
-        mock_result = TransformResult(
+        mock_result = TransformationResult(
             success=True,
             data={
                 "title": "Test issue",
@@ -284,7 +284,7 @@ class TestTransformAgent:
             }
         ]
         
-        mock_result = TransformResult(
+        mock_result = TransformationResult(
             success=True,
             data={
                 "title": "Test MR",
@@ -387,7 +387,7 @@ class TestTransformAgent:
             "stats": {"unmapped": 2}
         }
         
-        mock_result = TransformResult(
+        mock_result = TransformationResult(
             success=True,
             data={
                 "gaps": [
@@ -422,7 +422,7 @@ class TestTransformAgent:
     async def test_full_execute_success(self, transform_agent, transform_inputs):
         """Test full transformation execution"""
         # Mock all transformers
-        cicd_mock = TransformResult(
+        cicd_mock = TransformationResult(
             success=True,
             data={"workflow_yaml": "name: CI"},
             metadata={"conversion_gaps": []},
@@ -430,7 +430,7 @@ class TestTransformAgent:
             errors=[]
         )
         
-        user_mock = TransformResult(
+        user_mock = TransformationResult(
             success=True,
             data={
                 "mappings": [{"gitlab": {"username": "johndoe"}, "github": {"login": "johndoe"}}],
@@ -441,7 +441,7 @@ class TestTransformAgent:
             errors=[]
         )
         
-        content_mock = TransformResult(
+        content_mock = TransformationResult(
             success=True,
             data={"title": "Test"},
             metadata={},
@@ -449,7 +449,7 @@ class TestTransformAgent:
             errors=[]
         )
         
-        gap_mock = TransformResult(
+        gap_mock = TransformationResult(
             success=True,
             data={
                 "gaps": [],
@@ -485,7 +485,7 @@ class TestTransformAgent:
         }
         
         # Mock gap analyzer
-        gap_mock = TransformResult(
+        gap_mock = TransformationResult(
             success=True,
             data={"gaps": [], "summary": {}, "categorized_gaps": {}},
             metadata={},
@@ -503,7 +503,7 @@ class TestTransformAgent:
     async def test_execute_with_transformation_errors(self, transform_agent, transform_inputs):
         """Test execution with transformation errors"""
         # Mock transformers with errors
-        cicd_mock = TransformResult(
+        cicd_mock = TransformationResult(
             success=False,
             data={},
             metadata={},
@@ -511,7 +511,7 @@ class TestTransformAgent:
             errors=[{"message": "CI/CD transformation failed"}]
         )
         
-        gap_mock = TransformResult(
+        gap_mock = TransformationResult(
             success=True,
             data={"gaps": [], "summary": {}, "categorized_gaps": {}},
             metadata={},
