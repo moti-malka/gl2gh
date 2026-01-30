@@ -46,6 +46,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
 app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
 app.include_router(connections.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["connections"])
+# Also include connections router at root level for test endpoints (without project_id)
+app.include_router(connections.router, prefix=f"{settings.API_V1_PREFIX}", tags=["connections"])
 app.include_router(runs.router, prefix=f"{settings.API_V1_PREFIX}", tags=["runs"])
 app.include_router(events.router, prefix=f"{settings.API_V1_PREFIX}/runs", tags=["events"])
 
