@@ -16,11 +16,13 @@ class ContentTransformer(BaseTransformer):
     - Cross-references update
     - Attribution headers
     - Label and milestone mapping
+    - Attachment link rewriting
     """
     
     def __init__(self):
         super().__init__("ContentTransformer")
         self.user_mappings: Dict[str, str] = {}  # gitlab_username -> github_username
+        self.attachment_mappings: Dict[str, str] = {}  # old_path -> new_url
     
     def set_user_mappings(self, mappings: List[Dict[str, Any]]):
         """
@@ -39,6 +41,16 @@ class ContentTransformer(BaseTransformer):
             github_login = github_info.get("login")
             if gitlab_username and github_login:
                 self.user_mappings[gitlab_username] = github_login
+    
+    def set_attachment_mappings(self, mappings: Dict[str, str]):
+        """
+        Set attachment URL mappings for link rewriting.
+        
+        Args:
+            mappings: Dict mapping old GitLab paths to new GitHub URLs
+                      e.g. {"/uploads/abc123/file.png": "https://github.com/..."}
+        """
+        self.attachment_mappings = mappings or {}
     
     def transform(self, input_data: Dict[str, Any]) -> TransformationResult:
         """
@@ -235,6 +247,7 @@ class ContentTransformer(BaseTransformer):
         - Issue/MR cross-references
         - Code blocks
         - Other GitLab-specific syntax
+        - Attachment link rewriting
         """
         if not markdown:
             return ""
@@ -247,6 +260,9 @@ class ContentTransformer(BaseTransformer):
         
         # Transform GitLab-specific syntax
         markdown = self._transform_gitlab_syntax(markdown)
+        
+        # Rewrite attachment links
+        markdown = self._rewrite_attachment_links(markdown)
         
         return markdown
     
@@ -351,6 +367,29 @@ class ContentTransformer(BaseTransformer):
             "locked": "closed"
         }
         return state_map.get(state, "open")
+    
+    def _rewrite_attachment_links(self, text: str) -> str:
+        """
+        Rewrite attachment links from GitLab paths to new URLs.
+        
+        Args:
+            text: Markdown text containing attachment links
+            
+        Returns:
+            Text with rewritten attachment links
+        """
+        if not text or not self.attachment_mappings:
+            return text
+        
+        # Sort paths by length (longest first) to avoid partial replacements
+        sorted_paths = sorted(self.attachment_mappings.keys(), key=len, reverse=True)
+        
+        for old_path in sorted_paths:
+            new_url = self.attachment_mappings[old_path]
+            # Replace the old path with the new URL
+            text = text.replace(old_path, new_url)
+        
+        return text
     
     def transform_comment(
         self,

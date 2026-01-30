@@ -5,7 +5,8 @@ from .repository import (
     CreateRepositoryAction,
     PushCodeAction,
     PushLFSAction,
-    ConfigureRepositoryAction
+    ConfigureRepositoryAction,
+    UpdateGitmodulesAction
 )
 from .ci_cd import (
     CommitWorkflowAction,
@@ -35,7 +36,7 @@ from .settings import (
     CreateWebhookAction,
     CommitCodeownersAction
 )
-from .preservation import CommitPreservationArtifactsAction
+from .preservation import CommitPreservationArtifactsAction, CommitAttachmentsAction
 
 __all__ = [
     "BaseAction",
@@ -44,6 +45,7 @@ __all__ = [
     "PushCodeAction",
     "PushLFSAction",
     "ConfigureRepositoryAction",
+    "UpdateGitmodulesAction",
     "CommitWorkflowAction",
     "CreateEnvironmentAction",
     "SetSecretAction",
@@ -63,6 +65,7 @@ __all__ = [
     "CreateWebhookAction",
     "CommitCodeownersAction",
     "CommitPreservationArtifactsAction",
+    "CommitAttachmentsAction",
     "ACTION_REGISTRY",
 ]
 
@@ -72,6 +75,7 @@ ACTION_REGISTRY = {
     "repo_push": PushCodeAction,
     "lfs_configure": PushLFSAction,
     "repo_configure": ConfigureRepositoryAction,
+    "gitmodules_update": UpdateGitmodulesAction,
     "workflow_commit": CommitWorkflowAction,
     "environment_create": CreateEnvironmentAction,
     "secret_set": SetSecretAction,
@@ -91,4 +95,5 @@ ACTION_REGISTRY = {
     "webhook_create": CreateWebhookAction,
     "codeowners_commit": CommitCodeownersAction,
     "artifact_commit": CommitPreservationArtifactsAction,
+    "attachments_commit": CommitAttachmentsAction,
 }

@@ -28,8 +28,10 @@ The platform now uses the **actual Microsoft Agent Framework** library from Micr
 - 🤖 **6 Specialized Agents**: Discovery, Export, Transform, Plan, Apply, Verify
 - 🔄 **Complete Migration Pipeline**: From GitLab scan to GitHub validation
 - 🎯 **14 Component Types**: Code, CI/CD, Issues, MRs→PRs, Wiki, Releases, Packages, Settings, Webhooks, and more
+- 📎 **Attachment Migration**: Automatically downloads and migrates issue/MR attachments (images, files) to GitHub
 - 📋 **Safe by Default**: Runs in PLAN_ONLY mode - no GitHub writes without explicit confirmation
 - 🔁 **Resumable Operations**: Continue from any failure point
+- ⚡ **Batch Migrations**: Migrate multiple projects in parallel with configurable concurrency
 - 🌐 **Web UI**: Real-time monitoring and control through React interface
 - 📊 **REST API**: Complete API for programmatic control (FastAPI + OpenAPI)
 
@@ -574,10 +576,12 @@ Comprehensive documentation is available:
 
 - **[QUICKSTART.md](QUICKSTART.md)** - 5-minute setup guide
 - **[AZURE_AI_SETUP.md](AZURE_AI_SETUP.md)** - Azure AI setup for MAF integration ⭐ NEW
+- **[BATCH_MIGRATION.md](docs/BATCH_MIGRATION.md)** - Parallel migration guide ⚡ NEW
 - **[README_PLATFORM.md](README_PLATFORM.md)** - Detailed platform overview
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and components
 - **[MICROSOFT_AGENT_FRAMEWORK.md](docs/MICROSOFT_AGENT_FRAMEWORK.md)** - MAF integration guide
 - **[MIGRATION_COVERAGE.md](docs/MIGRATION_COVERAGE.md)** - All 14 components specifications
+- **[ATTACHMENTS.md](docs/ATTACHMENTS.md)** - Attachment migration guide (images, files) ⭐ NEW
 - **[USER_MAPPING.md](docs/USER_MAPPING.md)** - Identity resolution algorithms
 - **[PLAN_SCHEMA.md](docs/PLAN_SCHEMA.md)** - Plan format and execution model
 - **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Development roadmap

@@ -627,6 +627,91 @@ class TransformAgent(BaseAgent):
             "artifacts": [str(gaps_file), str(report_file)]
         }
     
+    async def _transform_submodules(
+        self,
+        submodules_content: Optional[str],
+        gitlab_project: str,
+        github_repo: str,
+        output_dir: Path
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Transform submodule URLs from GitLab to GitHub.
+        
+        Note: Currently only creates mappings for the single gitlab_project/github_repo
+        pair being migrated. For multi-repository migrations where submodules reference
+        other migrated repositories, url_mappings should be passed as an input parameter
+        containing all project mappings.
+        
+        Args:
+            submodules_content: Content of .gitmodules file
+            gitlab_project: GitLab project path (e.g., "group/project")
+            github_repo: GitHub repo path (e.g., "owner/repo")
+            output_dir: Directory for output artifacts
+            
+        Returns:
+            Dict with transformation results or None if no submodules
+        """
+        if not submodules_content:
+            self.log_event("INFO", "No submodules content found, skipping submodule transformation")
+            return None
+        
+        self.log_event("INFO", "Transforming submodule URLs")
+        
+        # Build URL mappings based on gitlab_project and github_repo
+        # TODO: For multi-repository migrations, accept url_mappings as parameter
+        url_mappings = {}
+        
+        if gitlab_project and github_repo:
+            # Extract org/project from paths
+            # gitlab_project format: "group/project"
+            # github_repo format: "owner/repo"
+            
+            # Create various URL format mappings
+            gitlab_https = f"https://gitlab.com/{gitlab_project}"
+            gitlab_ssh = f"git@gitlab.com:{gitlab_project}"
+            github_https = f"https://github.com/{github_repo}"
+            
+            url_mappings[gitlab_https] = github_https
+            url_mappings[gitlab_ssh] = github_https
+            url_mappings[f"gitlab.com/{gitlab_project}"] = f"github.com/{github_repo}"
+        
+        result = self.submodule_transformer.transform({
+            "gitmodules_content": submodules_content,
+            "url_mappings": url_mappings
+        })
+        
+        if not result.success:
+            self.log_event("ERROR", "Submodule transformation failed")
+            return {
+                "success": False,
+                "errors": result.errors,
+                "warnings": result.warnings,
+                "artifacts": []
+            }
+        
+        # Save transformed submodules
+        submodules_file = output_dir / "submodules_transformed.json"
+        with open(submodules_file, "w") as f:
+            json.dump(result.data, f, indent=2)
+        
+        # Save updated .gitmodules content
+        gitmodules_file = output_dir / "gitmodules_updated.txt"
+        gitmodules_file.write_text(result.data.get("gitmodules_content", ""))
+        
+        self.log_event("INFO", f"Transformed submodules: {submodules_file}")
+        
+        return {
+            "success": True,
+            "submodules": result.data.get("submodules", []),
+            "rewrite_count": result.data.get("rewrite_count", 0),
+            "external_count": result.data.get("external_count", 0),
+            "total_count": result.data.get("total_count", 0),
+            "gitmodules_content": result.data.get("gitmodules_content", ""),
+            "artifacts": [str(submodules_file), str(gitmodules_file)],
+            "warnings": result.warnings,
+            "errors": result.errors
+        }
+    
     def generate_artifacts(self, data: Dict[str, Any]) -> Dict[str, str]:
         """Generate transformation artifacts"""
         return {
