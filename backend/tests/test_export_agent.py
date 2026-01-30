@@ -2,6 +2,7 @@
 
 import pytest
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from app.agents.export_agent import ExportAgent
@@ -451,3 +452,149 @@ async def test_export_wiki_disabled(export_agent, mock_gitlab_client, tmp_path):
     
     wiki_dir = output_dir / "wiki"
     assert (wiki_dir / "wiki_disabled.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_parse_size_bytes(export_agent):
+    """Test size string parsing"""
+    assert export_agent._parse_size("100 B") == 100
+    assert export_agent._parse_size("1 KB") == 1024
+    assert export_agent._parse_size("1.5 MB") == 1572864
+    assert export_agent._parse_size("2 GB") == 2147483648
+    assert export_agent._parse_size("invalid") == 0
+
+
+@pytest.mark.asyncio
+async def test_get_lfs_object_list_success(export_agent, tmp_path):
+    """Test LFS object list retrieval"""
+    # Create a mock git repo directory
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    
+    # Mock subprocess to return LFS object list
+    mock_output = """abc123def456 - path/to/file1.bin (1.5 MB)
+789ghi012jkl - path/to/file2.zip (512 KB)
+345mno678pqr - docs/large.pdf (2.3 GB)"""
+    
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=mock_output
+        )
+        
+        objects = await export_agent._get_lfs_object_list(repo_dir)
+        
+        assert len(objects) == 3
+        assert objects[0]['oid'] == 'abc123def456'
+        assert objects[0]['path'] == 'path/to/file1.bin'
+        assert objects[0]['size'] == 1572864  # 1.5 MB in bytes
+        assert objects[1]['size'] == 524288   # 512 KB in bytes
+        assert objects[2]['size'] == 2469606195  # 2.3 GB in bytes
+
+
+@pytest.mark.asyncio
+async def test_get_lfs_object_list_empty(export_agent, tmp_path):
+    """Test LFS object list when no LFS objects exist"""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=""
+        )
+        
+        objects = await export_agent._get_lfs_object_list(repo_dir)
+        assert len(objects) == 0
+
+
+@pytest.mark.asyncio
+async def test_export_lfs_objects_success(export_agent, mock_gitlab_client, tmp_path):
+    """Test successful LFS objects export"""
+    export_agent.gitlab_client = mock_gitlab_client
+    
+    repo_dir = tmp_path / "repository"
+    repo_dir.mkdir(parents=True)
+    temp_clone_dir = tmp_path / "temp_clone"
+    temp_clone_dir.mkdir()
+    
+    # Create mock LFS storage directory
+    lfs_storage = temp_clone_dir / '.git' / 'lfs' / 'objects'
+    lfs_storage.mkdir(parents=True)
+    (lfs_storage / "test_object.bin").write_text("mock lfs content")
+    
+    # Mock subprocess for git lfs commands
+    with patch('subprocess.run') as mock_run, \
+         patch.object(export_agent, '_get_lfs_object_list') as mock_get_list:
+        
+        mock_get_list.return_value = [
+            {"oid": "abc123", "path": "file1.bin", "size": 1024, "size_str": "1 KB"},
+            {"oid": "def456", "path": "file2.bin", "size": 2048, "size_str": "2 KB"}
+        ]
+        
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        
+        result = await export_agent._export_lfs_objects(123, repo_dir, temp_clone_dir)
+        
+        assert result["success"] is True
+        assert result["count"] == 2
+        assert result["total_size"] == 3072
+        
+        # Check manifest was created
+        manifest_path = repo_dir / "lfs" / "manifest.json"
+        assert manifest_path.exists()
+        
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+            assert manifest["total_count"] == 2
+            assert manifest["total_size"] == 3072
+            assert len(manifest["objects"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_export_lfs_objects_no_objects(export_agent, mock_gitlab_client, tmp_path):
+    """Test LFS export when no objects exist"""
+    export_agent.gitlab_client = mock_gitlab_client
+    
+    repo_dir = tmp_path / "repository"
+    repo_dir.mkdir(parents=True)
+    temp_clone_dir = tmp_path / "temp_clone"
+    temp_clone_dir.mkdir()
+    
+    with patch.object(export_agent, '_get_lfs_object_list') as mock_get_list:
+        mock_get_list.return_value = []
+        
+        result = await export_agent._export_lfs_objects(123, repo_dir, temp_clone_dir)
+        
+        assert result["success"] is True
+        assert result["count"] == 0
+        assert result["total_size"] == 0
+
+
+@pytest.mark.asyncio
+async def test_export_lfs_objects_fetch_failure(export_agent, mock_gitlab_client, tmp_path):
+    """Test LFS export when git lfs fetch fails"""
+    export_agent.gitlab_client = mock_gitlab_client
+    
+    repo_dir = tmp_path / "repository"
+    repo_dir.mkdir(parents=True)
+    temp_clone_dir = tmp_path / "temp_clone"
+    temp_clone_dir.mkdir()
+    
+    with patch('subprocess.run') as mock_run, \
+         patch.object(export_agent, '_get_lfs_object_list') as mock_get_list:
+        
+        mock_get_list.return_value = [
+            {"oid": "abc123", "path": "file1.bin", "size": 1024, "size_str": "1 KB"}
+        ]
+        
+        # First call (git lfs install) succeeds, second call (git lfs fetch) fails
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),  # install
+            subprocess.CalledProcessError(1, ['git', 'lfs', 'fetch'], stderr="LFS fetch failed")  # fetch
+        ]
+        
+        result = await export_agent._export_lfs_objects(123, repo_dir, temp_clone_dir)
+        
+        assert result["success"] is False
+        assert "LFS fetch failed" in result["error"]
