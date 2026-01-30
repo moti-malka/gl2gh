@@ -40,6 +40,23 @@ class VerifyRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class BatchMigrationRequest(BaseModel):
+    """Request model for batch migration of multiple projects"""
+    project_ids: List[int]  # List of GitLab project IDs to migrate
+    mode: str = "PLAN_ONLY"
+    parallel_limit: int = 5  # Maximum concurrent migrations
+    resume_from: Optional[str] = None
+
+
+class BatchMigrationResponse(BaseModel):
+    """Response model for batch migration"""
+    batch_id: str  # Identifier for tracking this batch
+    total_projects: int
+    parallel_limit: int
+    status: str
+    message: str
+
+
 class RunResponse(BaseModel):
     id: str
     project_id: str
@@ -458,4 +475,145 @@ async def verify_run(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start verify task"
+        )
+
+
+@router.post("/projects/{project_id}/batch-migrate", response_model=BatchMigrationResponse)
+async def batch_migrate_projects(
+    project_id: str,
+    request: BatchMigrationRequest,
+    current_user: User = Depends(require_operator)
+):
+    """
+    Execute parallel migration for multiple projects.
+    
+    This endpoint supports batch migration of multiple GitLab projects
+    with configurable parallelism, allowing organizations to migrate
+    many projects efficiently.
+    
+    Args:
+        project_id: The GL2GH project ID containing migration settings
+        request: Batch migration request with project IDs and settings
+        current_user: Authenticated user
+        
+    Returns:
+        Batch migration response with tracking information
+    """
+    await check_project_access(project_id, current_user)
+    
+    # Validate parallelism limit
+    if request.parallel_limit < 1 or request.parallel_limit > 20:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="parallel_limit must be between 1 and 20"
+        )
+    
+    # Validate project_ids list
+    if not request.project_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_ids list cannot be empty"
+        )
+    
+    if len(request.project_ids) > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot migrate more than 100 projects in a single batch"
+        )
+    
+    project_service = ProjectService()
+    connection_service = ConnectionService()
+    
+    try:
+        # Fetch project to get settings
+        project = await project_service.get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Fetch GitLab connection and get decrypted token
+        gitlab_url = None
+        gitlab_token = None
+        gitlab_conn = await connection_service.get_connection_by_type(project_id, "gitlab")
+        if gitlab_conn:
+            gitlab_url = gitlab_conn.base_url or "https://gitlab.com"
+            gitlab_token = await connection_service.get_decrypted_token(str(gitlab_conn.id), project_id)
+        
+        # Fetch GitHub connection and get decrypted token
+        github_token = None
+        github_org = None
+        github_conn = await connection_service.get_connection_by_type(project_id, "github")
+        if github_conn:
+            github_token = await connection_service.get_decrypted_token(str(github_conn.id), project_id)
+        
+        # Get GitHub org from project settings
+        settings = project.settings
+        if settings and hasattr(settings, 'github') and settings.github:
+            github_org = settings.github.get("org")
+        
+        # Build config with safe attribute access
+        max_api_calls = 5000
+        max_per_project_calls = 200
+        include_archived = False
+        
+        if settings and hasattr(settings, 'budgets') and settings.budgets:
+            max_api_calls = settings.budgets.get("max_api_calls", 5000)
+            max_per_project_calls = settings.budgets.get("max_per_project_calls", 200)
+        
+        if settings and hasattr(settings, 'behavior') and settings.behavior:
+            include_archived = settings.behavior.get("include_archived", False)
+        
+        # Prepare base config shared across all projects
+        base_config = {
+            "gitlab_url": gitlab_url,
+            "gitlab_token": gitlab_token,
+            "github_token": github_token,
+            "github_org": github_org,
+            "max_api_calls": max_api_calls,
+            "max_per_project_calls": max_per_project_calls,
+            "include_archived": include_archived,
+        }
+        
+        # Import and dispatch the batch migration task
+        from app.workers.tasks import run_batch_migration
+        import uuid
+        
+        # Generate a batch ID for tracking
+        batch_id = str(uuid.uuid4())
+        
+        # Dispatch the batch migration as a Celery task
+        task = run_batch_migration.delay(
+            batch_id=batch_id,
+            project_id=project_id,
+            project_ids=request.project_ids,
+            mode=request.mode,
+            parallel_limit=request.parallel_limit,
+            base_config=base_config,
+            resume_from=request.resume_from
+        )
+        
+        logger.info(
+            f"Batch migration dispatched: batch_id={batch_id}, "
+            f"projects={len(request.project_ids)}, "
+            f"parallelism={request.parallel_limit}, "
+            f"task_id={task.id}"
+        )
+        
+        return BatchMigrationResponse(
+            batch_id=batch_id,
+            total_projects=len(request.project_ids),
+            parallel_limit=request.parallel_limit,
+            status="started",
+            message=f"Batch migration started with {len(request.project_ids)} projects"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start batch migration: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start batch migration: {str(e)}"
         )
