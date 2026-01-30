@@ -50,11 +50,13 @@ export const RunDashboardPage = () => {
       
       // Check if discovery has completed and we should show project selection
       const runData = runResponse.data;
-      if (runData.stage === 'EXPORT' || 
-          (runData.stage === 'DISCOVER' && runData.status === 'COMPLETED') ||
-          (runData.status === 'COMPLETED' && runData.mode === 'DISCOVER_ONLY')) {
-        // Check if project selection hasn't been made yet
-        if (!runData.config_snapshot?.project_selection) {
+      const discoveryCompleted = 
+        runData.stage !== 'DISCOVER' && runData.stage !== 'CREATED' && runData.stage !== null ||
+        (runData.status === 'COMPLETED' && runData.mode === 'DISCOVER_ONLY');
+        
+      if (discoveryCompleted && !runData.config_snapshot?.project_selection) {
+        // Only load discovery results once
+        if (discoveredProjects.length === 0 && !showProjectSelection) {
           await loadDiscoveryResults();
         }
       }
@@ -64,7 +66,7 @@ export const RunDashboardPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [runId, toast, loadDiscoveryResults]);
+  }, [runId, toast, loadDiscoveryResults, discoveredProjects.length, showProjectSelection]);
 
   const handleProjectSelectionContinue = async (selections) => {
     try {

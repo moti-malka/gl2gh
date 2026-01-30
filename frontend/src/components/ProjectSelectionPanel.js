@@ -62,18 +62,27 @@ export const ProjectSelectionPanel = ({ runId, discoveredProjects, onContinue, o
   };
 
   const handleContinue = () => {
-    // Build selection array to pass to parent
-    const selectionArray = discoveredProjects.map(project => ({
-      gitlab_project_id: project.id,
-      path_with_namespace: project.path_with_namespace,
-      target_repo_name: targetNames[project.id] || project.path_with_namespace,
-      selected: selections[project.id] || false
-    }));
+    // Build selection array with only selected projects
+    const selectionArray = discoveredProjects
+      .filter(project => selections[project.id]) // Only include selected projects
+      .map(project => ({
+        gitlab_project_id: project.id,
+        path_with_namespace: project.path_with_namespace,
+        target_repo_name: targetNames[project.id] || project.path_with_namespace,
+        selected: true
+      }));
     
     onContinue(selectionArray);
   };
 
   const selectedCount = Object.values(selections).filter(Boolean).length;
+  
+  // Validate that all selected projects have non-empty target names
+  const hasInvalidTargets = discoveredProjects.some(project => 
+    selections[project.id] && (!targetNames[project.id] || targetNames[project.id].trim() === '')
+  );
+  
+  const canContinue = selectedCount > 0 && !hasInvalidTargets;
 
   return (
     <div className="project-selection-panel">
@@ -100,6 +109,7 @@ export const ProjectSelectionPanel = ({ runId, discoveredProjects, onContinue, o
                     type="checkbox"
                     checked={selected}
                     onChange={() => handleSelectionChange(project.id)}
+                    aria-label={`Select ${project.path_with_namespace} for migration`}
                   />
                   <span className="project-name">{project.path_with_namespace}</span>
                 </label>
@@ -130,15 +140,17 @@ export const ProjectSelectionPanel = ({ runId, discoveredProjects, onContinue, o
               )}
 
               <div className="target-repo-config">
-                <label className="target-label">
+                <label className="target-label" htmlFor={`target-${project.id}`}>
                   Target GitHub Repo:
                   <input
+                    id={`target-${project.id}`}
                     type="text"
                     className="target-input"
                     value={targetNames[project.id] || ''}
                     onChange={(e) => handleTargetNameChange(project.id, e.target.value)}
                     placeholder="owner/repo-name"
                     disabled={!selected}
+                    aria-label={`Target GitHub repository name for ${project.path_with_namespace}`}
                   />
                 </label>
               </div>
@@ -169,7 +181,8 @@ export const ProjectSelectionPanel = ({ runId, discoveredProjects, onContinue, o
           <button 
             onClick={handleContinue} 
             className="btn btn-primary"
-            disabled={selectedCount === 0}
+            disabled={!canContinue}
+            title={hasInvalidTargets ? "Please provide target names for all selected projects" : ""}
           >
             Continue to Export →
           </button>

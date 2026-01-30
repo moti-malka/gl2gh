@@ -482,7 +482,13 @@ async def get_discovery_results(
     run = await check_run_access(run_id, current_user)
     
     # Check if discovery has completed
-    if run.stage not in ["EXPORT", "TRANSFORM", "PLAN", "APPLY", "VERIFY"] and run.status != "COMPLETED":
+    # Discovery is complete if stage is past DISCOVER or if DISCOVER_ONLY mode is complete
+    discovery_complete = (
+        run.stage in ["EXPORT", "TRANSFORM", "PLAN", "APPLY", "VERIFY"] or
+        (run.status == "COMPLETED" and run.mode == "DISCOVER_ONLY")
+    )
+    
+    if not discovery_complete:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Discovery has not completed yet"
@@ -595,9 +601,46 @@ async def save_project_selection(
     """Save user's project selection for migration"""
     run = await check_run_access(run_id, current_user)
     
-    # Validate that all project IDs exist in the discovery results
     from app.db import get_database
     from bson import ObjectId
+    import re
+    
+    # Validate target repo names format (owner/repo)
+    github_repo_pattern = re.compile(r'^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$')
+    
+    for sel in request.selections:
+        if sel.selected and not github_repo_pattern.match(sel.target_repo_name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid target repo name format: {sel.target_repo_name}. Must be owner/repo-name"
+            )
+    
+    # Validate that all project IDs exist in the discovery results
+    try:
+        artifact_service = ArtifactService()
+        discovery_artifacts = await artifact_service.list_artifacts(run_id, artifact_type="inventory")
+        
+        if discovery_artifacts and run.artifact_root:
+            inventory_artifact = discovery_artifacts[0]
+            inventory_file_path = Path(run.artifact_root) / inventory_artifact.path
+            
+            if inventory_file_path.exists():
+                with open(inventory_file_path, 'r') as f:
+                    inventory_content = json.load(f)
+                    discovered_project_ids = {p.get("id") for p in inventory_content.get("projects", [])}
+                    
+                    # Validate all selected project IDs exist in discovery
+                    for sel in request.selections:
+                        if sel.selected and sel.gitlab_project_id not in discovered_project_ids:
+                            raise HTTPException(
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"Project ID {sel.gitlab_project_id} not found in discovery results"
+                            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Could not validate project IDs against discovery results: {str(e)}")
+        # Continue anyway - validation is best-effort
     
     db = await get_database()
     
