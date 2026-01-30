@@ -4,8 +4,11 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from datetime import datetime
 import json
 import logging
+import asyncio
+from sse_starlette.sse import EventSourceResponse
 
 from app.models import User
 from app.services import RunService, ArtifactService, ProjectService
@@ -14,6 +17,7 @@ from app.services.report_service import MigrationReportGenerator
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
 from app.workers.tasks import run_migration, run_apply, run_verify
+from app.utils.sse_manager import sse_manager
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +45,31 @@ class VerifyRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class BatchMigrationRequest(BaseModel):
+    """Request model for batch migration of multiple projects"""
+    project_ids: List[int]  # List of GitLab project IDs to migrate
+    mode: str = "PLAN_ONLY"
+    parallel_limit: int = 5  # Maximum concurrent migrations
+    resume_from: Optional[str] = None
+
+
+class BatchMigrationResponse(BaseModel):
+    """Response model for batch migration"""
+    batch_id: str  # Identifier for tracking this batch
+    total_projects: int
+    parallel_limit: int
+    status: str
+    message: str
+
+
 class RunResponse(BaseModel):
     id: str
     project_id: str
     mode: str
     status: str
     stage: Optional[str]
+    current_stage: Optional[str] = None
+    progress: Dict[str, Any] = {}
     started_at: Optional[str]
     finished_at: Optional[str]
     stats: Dict[str, int]
@@ -156,6 +179,8 @@ async def create_run(
             mode=created_run.mode,
             status=created_run.status,
             stage=created_run.stage,
+            current_stage=created_run.current_stage,
+            progress=created_run.progress,
             started_at=created_run.started_at.isoformat() if created_run.started_at else None,
             finished_at=created_run.finished_at.isoformat() if created_run.finished_at else None,
             stats=created_run.stats.model_dump(),
@@ -188,6 +213,8 @@ async def list_project_runs(
             mode=r.mode,
             status=r.status,
             stage=r.stage,
+            current_stage=r.current_stage,
+            progress=r.progress,
             started_at=r.started_at.isoformat() if r.started_at else None,
             finished_at=r.finished_at.isoformat() if r.finished_at else None,
             stats=r.stats.model_dump(),
@@ -211,6 +238,8 @@ async def get_run(
         mode=run.mode,
         status=run.status,
         stage=run.stage,
+        current_stage=run.current_stage,
+        progress=run.progress,
         started_at=run.started_at.isoformat() if run.started_at else None,
         finished_at=run.finished_at.isoformat() if run.finished_at else None,
         stats=run.stats.model_dump(),
@@ -516,3 +545,93 @@ async def get_migration_report(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate report: {str(e)}"
         )
+@router.get("/runs/{run_id}/progress")
+async def get_run_progress(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """
+    Get current run progress (REST polling fallback)
+    
+    This endpoint provides a REST-based fallback for clients that cannot
+    use WebSocket or SSE connections. Clients can poll this endpoint to
+    get the latest run progress.
+    """
+    run = await check_run_access(run_id, current_user)
+    
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "stage": run.stage,
+        "current_stage": run.current_stage,
+        "progress": run.progress,
+        "stats": run.stats.model_dump(),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "error": run.error
+    }
+
+
+@router.get("/runs/{run_id}/stream")
+async def run_events_stream(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """
+    SSE stream for run progress (WebSocket alternative)
+    
+    This endpoint provides Server-Sent Events as an alternative to WebSocket
+    for real-time updates. It's more reliable on unstable networks and
+    doesn't require special protocol support.
+    """
+    # Check access first
+    await check_run_access(run_id, current_user)
+    
+    async def event_generator():
+        """Generate SSE events for this run"""
+        # Subscribe to updates for this run
+        queue = await sse_manager.subscribe(run_id)
+        
+        try:
+            # Send initial connection message
+            run_service = RunService()
+            run = await run_service.get_run(run_id)
+            if run:
+                initial_data = {
+                    "run_id": str(run.id),
+                    "status": run.status,
+                    "stage": run.stage,
+                    "current_stage": run.current_stage,
+                    "progress": run.progress,
+                    "stats": run.stats.model_dump(),
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                    "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                }
+                yield {
+                    "event": "connected",
+                    "data": json.dumps(initial_data)
+                }
+            
+            # Stream updates from the queue
+            while True:
+                try:
+                    # Wait for updates with timeout to send keepalive
+                    update = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield {
+                        "event": "run_update",
+                        "data": json.dumps(update)
+                    }
+                except asyncio.TimeoutError:
+                    # Send keepalive comment to keep connection alive
+                    yield {
+                        "event": "keepalive",
+                        "data": json.dumps({"timestamp": datetime.utcnow().isoformat()})
+                    }
+        except asyncio.CancelledError:
+            # Client disconnected
+            logger.info(f"SSE client disconnected from run {run_id}")
+        finally:
+            # Clean up subscription
+            await sse_manager.unsubscribe(run_id, queue)
+    
+    return EventSourceResponse(event_generator())

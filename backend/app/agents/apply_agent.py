@@ -5,10 +5,10 @@ from pathlib import Path
 import json
 import asyncio
 from datetime import datetime
-from github import Github, GithubException, RateLimitExceededException
 
 from app.agents.base_agent import BaseAgent, AgentResult
 from app.agents.actions import ACTION_REGISTRY, ActionResult
+from app.clients.github_client import GitHubClient
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +44,7 @@ class ApplyAgent(BaseAgent):
             Generate comprehensive apply reports.
             """
         )
-        self.github_client: Optional[Github] = None
+        self.github_client: Optional[GitHubClient] = None
         self.execution_context: Dict[str, Any] = {}
     
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
@@ -75,7 +75,10 @@ class ApplyAgent(BaseAgent):
             
             # Initialize GitHub client
             github_token = inputs["github_token"]
-            self.github_client = Github(github_token)
+            self.github_client = GitHubClient(
+                token=github_token,
+                timeout=inputs.get("timeout", 30)
+            )
             
             # Initialize execution context
             self.execution_context = {
@@ -261,15 +264,16 @@ class ApplyAgent(BaseAgent):
     async def _check_rate_limit(self):
         """Check GitHub API rate limit and wait if needed"""
         try:
-            rate_limit = self.github_client.get_rate_limit()
-            remaining = rate_limit.core.remaining
+            rate_limit = await self.github_client.get_rate_limit()
+            remaining = rate_limit.get("resources", {}).get("core", {}).get("remaining", 5000)
             
             if remaining < 100:
-                reset_time = rate_limit.core.reset
-                wait_seconds = (reset_time - datetime.utcnow()).total_seconds() + 10
+                reset_time = rate_limit.get("resources", {}).get("core", {}).get("reset", 0)
+                from datetime import datetime
+                wait_seconds = reset_time - datetime.utcnow().timestamp() + 10
                 if wait_seconds > 0:
                     self.log_event("WARN", f"Rate limit low ({remaining}), waiting {wait_seconds:.0f}s")
-                    await asyncio.sleep(wait_seconds)  # Use async sleep
+                    await asyncio.sleep(wait_seconds)
         except Exception as e:
             self.log_event("WARN", f"Could not check rate limit: {str(e)}")
     

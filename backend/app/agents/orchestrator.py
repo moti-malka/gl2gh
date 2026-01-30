@@ -201,9 +201,31 @@ class AgentOrchestrator:
             })
         
         elif agent_name == "export":
-            inputs.update({
+            # Extract project_id from discovered projects
+            discovered = self.shared_context.get("discovered_projects", [])
+            
+            # Prepare base inputs with output_dir
+            export_inputs = {
                 "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/export")
-            })
+            }
+            
+            if discovered:
+                # Take first project (TODO: support multi-project or user selection)
+                first_project = discovered[0]
+                export_inputs.update({
+                    "project_id": first_project["id"],
+                    "gitlab_url": config.get("gitlab_url"),
+                    "gitlab_token": config.get("gitlab_token")
+                })
+            else:
+                # Log warning - export agent will fail validation without project_id
+                self.logger.warning(
+                    "No discovered projects available for export. "
+                    "Export agent will fail validation. "
+                    "Ensure discovery agent ran successfully first."
+                )
+            
+            inputs.update(export_inputs)
         
         elif agent_name == "transform":
             inputs.update({
