@@ -13,6 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.models import User
 from app.services import RunService, ArtifactService, ProjectService
 from app.services.connection_service import ConnectionService
+from app.services.report_service import MigrationReportGenerator
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
 from app.workers.tasks import run_migration, run_apply, run_verify
@@ -490,6 +491,60 @@ async def verify_run(
         )
 
 
+@router.get("/runs/{run_id}/report")
+async def get_migration_report(
+    run_id: str,
+    format: str = Query("json", enum=["json", "markdown", "html"]),
+    current_user: User = Depends(require_operator)
+):
+    """
+    Generate comprehensive migration summary report
+    
+    Args:
+        run_id: The migration run ID
+        format: Output format (json, markdown, html)
+        
+    Returns:
+        Migration report in the specified format
+    """
+    run = await check_run_access(run_id, current_user)
+    
+    try:
+        # Get database instance following the same pattern as other services
+        from app.db import get_database
+        db = await get_database()
+        
+        generator = MigrationReportGenerator(db)
+        report = await generator.generate(run_id, format)
+        
+        # For JSON format, return as-is
+        if format == "json":
+            return report
+        
+        # For markdown and html, return with appropriate content type
+        from fastapi.responses import PlainTextResponse, HTMLResponse
+        
+        if format == "markdown":
+            return PlainTextResponse(
+                content=report["content"],
+                media_type="text/markdown"
+            )
+        elif format == "html":
+            return HTMLResponse(
+                content=report["content"]
+            )
+            
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error generating report for run {run_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate report: {str(e)}"
+        )
 @router.get("/runs/{run_id}/progress")
 async def get_run_progress(
     run_id: str,
