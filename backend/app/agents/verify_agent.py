@@ -9,6 +9,7 @@ import httpx
 import yaml
 from datetime import datetime
 from app.agents.base_agent import BaseAgent, AgentResult
+from app.clients.github_client import GitHubClient
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -107,7 +108,7 @@ class VerifyAgent(BaseAgent):
             Provide recommendations for remediation.
             """
         )
-        self.github_client = None
+        self.github_client: Optional[GitHubClient] = None
         self.gitlab_client = None
     
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
@@ -128,13 +129,9 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Initialize API clients
-            timeout = inputs.get("timeout", 60.0)  # Configurable timeout, default 60s
-            self.github_client = httpx.AsyncClient(
-                base_url="https://api.github.com",
-                headers={
-                    "Authorization": f"Bearer {inputs['github_token']}",  # Modern format
-                    "Accept": "application/vnd.github.v3+json"
-                },
+            timeout = inputs.get("timeout", 30)
+            self.github_client = GitHubClient(
+                token=inputs['github_token'],
                 timeout=timeout
             )
             
@@ -282,7 +279,7 @@ class VerifyAgent(BaseAgent):
         finally:
             # Close API clients
             if self.github_client:
-                await self.github_client.aclose()
+                await self.github_client.close()
             if self.gitlab_client:
                 await self.gitlab_client.aclose()
     
@@ -310,24 +307,24 @@ class VerifyAgent(BaseAgent):
         result = VerificationResult("repository")
         
         try:
+            # Parse owner/repo
+            owner, repo_name = repo.split('/')
+            
             # Check if repository exists and is accessible
-            response = await self.github_client.get(f"/repos/{repo}")
-            if response.status_code != 200:
+            try:
+                repo_data = await self.github_client.get_repository(owner, repo_name)
+                result.add_check("repository_exists", True, {"name": repo_data.get("full_name")})
+            except Exception as e:
                 result.add_discrepancy(
-                    f"Repository not accessible: {response.status_code}",
-                    "error",
-                    {"status_code": response.status_code}
+                    f"Repository not accessible: {str(e)}",
+                    "error"
                 )
                 result.set_status()
                 return result
             
-            repo_data = response.json()
-            result.add_check("repository_exists", True, {"name": repo_data.get("full_name")})
-            
             # Verify branches
-            branches_response = await self.github_client.get(f"/repos/{repo}/branches")
-            if branches_response.status_code == 200:
-                branches = branches_response.json()
+            try:
+                branches = await self.github_client.list_branches(owner, repo_name)
                 branch_count = len(branches)
                 expected_branches = expected.get("branch_count", 0)
                 
@@ -340,11 +337,12 @@ class VerifyAgent(BaseAgent):
                         "warning",
                         {"expected": expected_branches, "actual": branch_count}
                     )
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify branches: {str(e)}", "warning")
             
             # Verify tags
-            tags_response = await self.github_client.get(f"/repos/{repo}/tags")
-            if tags_response.status_code == 200:
-                tags = tags_response.json()
+            try:
+                tags = await self.github_client.list_tags(owner, repo_name)
                 tag_count = len(tags)
                 expected_tags = expected.get("tag_count", 0)
                 
@@ -357,18 +355,21 @@ class VerifyAgent(BaseAgent):
                         "warning",
                         {"expected": expected_tags, "actual": tag_count}
                     )
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify tags: {str(e)}", "warning")
             
             # Verify default branch
             default_branch = repo_data.get("default_branch")
             result.stats["default_branch"] = default_branch
             result.add_check("default_branch_set", True, {"branch": default_branch})
             
-            # Verify commit count on default branch
-            commits_response = await self.github_client.get(
-                f"/repos/{repo}/commits",
-                params={"sha": default_branch, "per_page": 1}
-            )
-            if commits_response.status_code == 200:
+            # Verify commit count on default branch - use raw request for this specific case
+            try:
+                commits_response = await self.github_client._request(
+                    'GET',
+                    f"/repos/{repo}/commits",
+                    params={"sha": default_branch, "per_page": 1}
+                )
                 # Get commit count from Link header if available
                 link_header = commits_response.headers.get("Link", "")
                 page_count = self._extract_page_count_from_link_header(link_header)
@@ -383,12 +384,14 @@ class VerifyAgent(BaseAgent):
                     commit_count = 1 if commits else 0
                     result.stats["commit_count"] = commit_count
                     result.add_check("commits_migrated", True, {"count": commit_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify commits: {str(e)}", "warning")
             
             # Check LFS if expected
             if expected.get("lfs_enabled"):
                 # Check for .gitattributes
-                content_response = await self.github_client.get(f"/repos/{repo}/contents/.gitattributes")
-                lfs_configured = content_response.status_code == 200
+                content = await self.github_client.get_file_content(repo, ".gitattributes")
+                lfs_configured = content is not None
                 result.add_check("lfs_configured", lfs_configured)
                 
                 if not lfs_configured:
@@ -406,8 +409,8 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Verify workflows exist
-            workflows_response = await self.github_client.get(f"/repos/{repo}/actions/workflows")
-            if workflows_response.status_code == 200:
+            try:
+                workflows_response = await self.github_client._request('GET', f"/repos/{repo}/actions/workflows")
                 workflows_data = workflows_response.json()
                 workflows = workflows_data.get("workflows", [])
                 workflow_count = len(workflows)
@@ -427,28 +430,26 @@ class VerifyAgent(BaseAgent):
                 for workflow in workflows[:5]:  # Sample first 5
                     workflow_path = workflow.get("path")
                     if workflow_path:
-                        content_response = await self.github_client.get(
-                            f"/repos/{repo}/contents/{workflow_path}"
-                        )
-                        if content_response.status_code == 200:
-                            import base64
-                            content_data = content_response.json()
-                            content = base64.b64decode(content_data.get("content", "")).decode("utf-8")
-                            try:
-                                yaml.safe_load(content)
-                                result.add_check(f"workflow_valid_{workflow.get('name')}", True)
-                            except yaml.YAMLError as e:
-                                result.add_discrepancy(
-                                    f"Invalid workflow YAML: {workflow.get('name')}",
-                                    "error",
-                                    {"path": workflow_path, "error": str(e)}
-                                )
+                        try:
+                            content_data = await self.github_client.get_file_content(repo, workflow_path)
+                            if content_data:
+                                try:
+                                    yaml.safe_load(content_data)
+                                    result.add_check(f"workflow_valid_{workflow.get('name')}", True)
+                                except yaml.YAMLError as e:
+                                    result.add_discrepancy(
+                                        f"Invalid workflow YAML: {workflow.get('name')}",
+                                        "error",
+                                        {"path": workflow_path, "error": str(e)}
+                                    )
+                        except Exception:
+                            pass
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify workflows: {str(e)}", "warning")
             
             # Verify environments
-            environments_response = await self.github_client.get(f"/repos/{repo}/environments")
-            if environments_response.status_code == 200:
-                environments_data = environments_response.json()
-                environments = environments_data.get("environments", [])
+            try:
+                environments = await self.github_client.list_environments(repo)
                 env_count = len(environments)
                 expected_envs = expected.get("environment_count", 0)
                 
@@ -461,22 +462,27 @@ class VerifyAgent(BaseAgent):
                         "warning",
                         {"expected": expected_envs, "actual": env_count}
                     )
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify environments: {str(e)}", "warning")
             
             # Verify secrets (presence only)
-            secrets_response = await self.github_client.get(f"/repos/{repo}/actions/secrets")
-            if secrets_response.status_code == 200:
-                secrets_data = secrets_response.json()
-                secret_count = secrets_data.get("total_count", 0)
+            try:
+                secrets = await self.github_client.list_secrets(repo)
+                secret_count = len(secrets)
                 result.stats["secret_count"] = secret_count
                 result.add_check("secrets_exist", True, {"count": secret_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify secrets: {str(e)}", "warning")
             
             # Verify variables
-            variables_response = await self.github_client.get(f"/repos/{repo}/actions/variables")
-            if variables_response.status_code == 200:
+            try:
+                variables_response = await self.github_client._request('GET', f"/repos/{repo}/actions/variables")
                 variables_data = variables_response.json()
                 variable_count = variables_data.get("total_count", 0)
                 result.stats["variable_count"] = variable_count
                 result.add_check("variables_exist", True, {"count": variable_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify variables: {str(e)}", "warning")
             
         except Exception as e:
             result.add_discrepancy(f"CI/CD verification failed: {str(e)}", "error")
@@ -490,12 +496,14 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Get issue counts by state
-            all_issues_response = await self.github_client.get(
-                f"/repos/{repo}/issues",
-                params={"state": "all", "per_page": 1}
-            )
-            
-            if all_issues_response.status_code == 200:
+            try:
+                # Use list_issues with pagination to get total count
+                all_issues_response = await self.github_client._request(
+                    'GET',
+                    f"/repos/{repo}/issues",
+                    params={"state": "all", "per_page": 1}
+                )
+                
                 # Parse Link header for total count
                 link_header = all_issues_response.headers.get("Link", "")
                 page_count = self._extract_page_count_from_link_header(link_header)
@@ -529,32 +537,28 @@ class VerifyAgent(BaseAgent):
                             "warning",
                             {"expected": expected_count, "actual": total_issues, "match_percentage": match_percentage}
                         )
-            
-            # Get open vs closed counts
-            open_response = await self.github_client.get(
-                f"/repos/{repo}/issues",
-                params={"state": "open", "per_page": 1}
-            )
-            closed_response = await self.github_client.get(
-                f"/repos/{repo}/issues",
-                params={"state": "closed", "per_page": 1}
-            )
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify issues: {str(e)}", "warning")
             
             # Verify labels
-            labels_response = await self.github_client.get(f"/repos/{repo}/labels")
-            if labels_response.status_code == 200:
+            try:
+                labels_response = await self.github_client._request('GET', f"/repos/{repo}/labels")
                 labels = labels_response.json()
                 label_count = len(labels)
                 result.stats["label_count"] = label_count
                 result.add_check("labels_created", True, {"count": label_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify labels: {str(e)}", "warning")
             
             # Verify milestones
-            milestones_response = await self.github_client.get(f"/repos/{repo}/milestones", params={"state": "all"})
-            if milestones_response.status_code == 200:
+            try:
+                milestones_response = await self.github_client._request('GET', f"/repos/{repo}/milestones", params={"state": "all"})
                 milestones = milestones_response.json()
                 milestone_count = len(milestones)
                 result.stats["milestone_count"] = milestone_count
                 result.add_check("milestones_created", True, {"count": milestone_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify milestones: {str(e)}", "warning")
             
         except Exception as e:
             result.add_discrepancy(f"Issues verification failed: {str(e)}", "error")
@@ -568,12 +572,13 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Get PR counts
-            all_prs_response = await self.github_client.get(
-                f"/repos/{repo}/pulls",
-                params={"state": "all", "per_page": 1}
-            )
-            
-            if all_prs_response.status_code == 200:
+            try:
+                all_prs_response = await self.github_client._request(
+                    'GET',
+                    f"/repos/{repo}/pulls",
+                    params={"state": "all", "per_page": 1}
+                )
+                
                 link_header = all_prs_response.headers.get("Link", "")
                 page_count = self._extract_page_count_from_link_header(link_header)
                 
@@ -595,6 +600,8 @@ class VerifyAgent(BaseAgent):
                         "warning",
                         {"expected": expected_count, "actual": total_prs}
                     )
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify pull requests: {str(e)}", "warning")
             
         except Exception as e:
             result.add_discrepancy(f"Pull requests verification failed: {str(e)}", "error")
@@ -608,9 +615,9 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Check if wiki is enabled
-            repo_response = await self.github_client.get(f"/repos/{repo}")
-            if repo_response.status_code == 200:
-                repo_data = repo_response.json()
+            try:
+                owner, repo_name = repo.split('/')
+                repo_data = await self.github_client.get_repository(owner, repo_name)
                 wiki_enabled = repo_data.get("has_wiki", False)
                 
                 result.stats["wiki_enabled"] = wiki_enabled
@@ -618,6 +625,8 @@ class VerifyAgent(BaseAgent):
                 
                 if expected.get("wiki_enabled") and not wiki_enabled:
                     result.add_discrepancy("Wiki was expected but is not enabled", "warning")
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify wiki: {str(e)}", "warning")
             
         except Exception as e:
             result.add_discrepancy(f"Wiki verification failed: {str(e)}", "error")
@@ -631,9 +640,8 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Get releases
-            releases_response = await self.github_client.get(f"/repos/{repo}/releases")
-            if releases_response.status_code == 200:
-                releases = releases_response.json()
+            try:
+                releases = await self.github_client.list_releases(repo)
                 release_count = len(releases)
                 expected_count = expected.get("release_count", 0)
                 
@@ -655,6 +663,8 @@ class VerifyAgent(BaseAgent):
                 
                 result.stats["total_assets"] = total_assets
                 result.add_check("release_assets_exist", True, {"count": total_assets})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify releases: {str(e)}", "warning")
             
         except Exception as e:
             result.add_discrepancy(f"Releases verification failed: {str(e)}", "error")
@@ -694,37 +704,42 @@ class VerifyAgent(BaseAgent):
         result = VerificationResult("settings")
         
         try:
+            # Parse owner/repo
+            owner, repo_name = repo.split('/')
+            
             # Verify branch protection rules
-            branches_response = await self.github_client.get(f"/repos/{repo}/branches")
-            if branches_response.status_code == 200:
-                branches = branches_response.json()
+            try:
+                branches = await self.github_client.list_branches(owner, repo_name)
                 protected_count = sum(1 for b in branches if b.get("protected", False))
                 
                 result.stats["protected_branches"] = protected_count
                 result.add_check("branch_protection_configured", True, {"count": protected_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify branch protection: {str(e)}", "warning")
             
             # Verify collaborators
-            collaborators_response = await self.github_client.get(f"/repos/{repo}/collaborators")
-            if collaborators_response.status_code == 200:
-                collaborators = collaborators_response.json()
+            try:
+                collaborators = await self.github_client.list_collaborators(repo)
                 collaborator_count = len(collaborators)
                 
                 result.stats["collaborator_count"] = collaborator_count
                 result.add_check("collaborators_configured", True, {"count": collaborator_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify collaborators: {str(e)}", "warning")
             
             # Verify webhooks
-            webhooks_response = await self.github_client.get(f"/repos/{repo}/hooks")
-            if webhooks_response.status_code == 200:
-                webhooks = webhooks_response.json()
+            try:
+                webhooks = await self.github_client.list_webhooks(repo)
                 webhook_count = len(webhooks)
                 
                 result.stats["webhook_count"] = webhook_count
                 result.add_check("webhooks_configured", True, {"count": webhook_count})
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify webhooks: {str(e)}", "warning")
             
             # Verify repository settings
-            repo_response = await self.github_client.get(f"/repos/{repo}")
-            if repo_response.status_code == 200:
-                repo_data = repo_response.json()
+            try:
+                repo_data = await self.github_client.get_repository(owner, repo_name)
                 result.stats["visibility"] = "private" if repo_data.get("private") else "public"
                 result.stats["features"] = {
                     "issues": repo_data.get("has_issues", False),
@@ -733,6 +748,8 @@ class VerifyAgent(BaseAgent):
                     "discussions": repo_data.get("has_discussions", False)
                 }
                 result.add_check("repository_settings_configured", True)
+            except Exception as e:
+                result.add_discrepancy(f"Failed to verify repository settings: {str(e)}", "warning")
             
         except Exception as e:
             result.add_discrepancy(f"Settings verification failed: {str(e)}", "error")
@@ -746,9 +763,8 @@ class VerifyAgent(BaseAgent):
         
         try:
             # Check for .github/migration/ directory
-            migration_response = await self.github_client.get(f"/repos/{repo}/contents/.github/migration")
-            
-            if migration_response.status_code == 200:
+            try:
+                migration_response = await self.github_client._request('GET', f"/repos/{repo}/contents/.github/migration")
                 migration_contents = migration_response.json()
                 result.add_check("migration_directory_exists", True, {"file_count": len(migration_contents)})
                 
@@ -761,7 +777,7 @@ class VerifyAgent(BaseAgent):
                 result.add_check("migration_metadata_exists", has_metadata)
                 
                 result.stats["preservation_files"] = len(migration_contents)
-            else:
+            except Exception:
                 result.add_check("migration_directory_exists", False)
                 if expected.get("preservation_expected", False):
                     result.add_discrepancy(

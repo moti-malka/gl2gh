@@ -25,37 +25,38 @@ class CreatePullRequestAction(BaseAction):
                 attribution = f"\n\n---\n*Originally created by @{original_author} on GitLab*"
                 body = body + attribution
             
-            repo = self.github_client.get_repo(target_repo)
-            
             # Try to create PR if branches exist
             if head:
                 try:
-                    pr = repo.create_pull(
+                    pr = await self.github_client.create_pull_request(
+                        repo=target_repo,
                         title=title,
                         body=body,
                         head=head,
                         base=base
                     )
                     
-                    # Add labels, milestone, assignees
-                    if labels:
-                        pr.add_to_labels(*labels)
-                    if milestone_number:
-                        pr.edit(milestone=repo.get_milestone(milestone_number))
-                    if assignees:
-                        pr.add_to_assignees(*assignees)
-                    
                     # Store ID mapping
                     if gitlab_mr_id:
-                        self.set_id_mapping("merge_request", gitlab_mr_id, pr.number)
+                        self.set_id_mapping("merge_request", gitlab_mr_id, pr["number"])
+                    
+                    # Note: Labels, milestone, and assignees cannot be added via create_pull_request
+                    # Would require additional PATCH /repos/{owner}/{repo}/issues/{number} calls
+                    warnings = []
+                    if labels:
+                        warnings.append(f"Labels not added: {labels}")
+                    if milestone_number:
+                        warnings.append(f"Milestone not set: {milestone_number}")
+                    if assignees:
+                        warnings.append(f"Assignees not added: {assignees}")
                     
                     return ActionResult(
                         success=True,
                         action_id=self.action_id,
                         action_type=self.action_type,
                         outputs={
-                            "pr_number": pr.number,
-                            "pr_url": pr.html_url,
+                            "pr_number": pr["number"],
+                            "pr_url": pr["html_url"],
                             "gitlab_mr_id": gitlab_mr_id,
                             "created_as": "pull_request"
                         },
@@ -70,25 +71,26 @@ class CreatePullRequestAction(BaseAction):
                     self.logger.warning(f"Could not create PR, creating as issue: {pr_error}")
             
             # Create as issue if PR creation failed or no head branch
-            issue = repo.create_issue(
+            issue = await self.github_client.create_issue(
+                repo=target_repo,
                 title=f"[MR] {title}",
                 body=f"*This was a merge request on GitLab*\n\n{body}",
                 labels=labels,
-                milestone=repo.get_milestone(milestone_number) if milestone_number else None,
+                milestone=milestone_number,
                 assignees=assignees
             )
             
             # Store ID mapping
             if gitlab_mr_id:
-                self.set_id_mapping("merge_request", gitlab_mr_id, issue.number)
+                self.set_id_mapping("merge_request", gitlab_mr_id, issue["number"])
             
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "issue_number": issue.number,
-                    "issue_url": issue.html_url,
+                    "issue_number": issue["number"],
+                    "issue_url": issue["html_url"],
                     "gitlab_mr_id": gitlab_mr_id,
                     "created_as": "issue",
                     "note": "Created as issue because branches do not exist"
@@ -180,23 +182,19 @@ class AddPRCommentAction(BaseAction):
                 attribution = f"\n\n*Originally posted by @{original_author} on GitLab*"
                 body = body + attribution
             
-            repo = self.github_client.get_repo(target_repo)
-            
-            # Try as PR first, fall back to issue
-            try:
-                pr = repo.get_pull(pr_number)
-                comment = pr.create_issue_comment(body)
-            except Exception:
-                # Try as issue
-                issue = repo.get_issue(pr_number)
-                comment = issue.create_comment(body)
+            # Create comment (works for both PRs and issues)
+            comment = await self.github_client.create_issue_comment(
+                repo=target_repo,
+                issue_num=pr_number,
+                body=body
+            )
             
             return ActionResult(
                 success=True,
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "comment_id": comment.id,
+                    "comment_id": comment["id"],
                     "pr_number": pr_number
                 },
                 reversible=False  # Comments cannot be deleted via API

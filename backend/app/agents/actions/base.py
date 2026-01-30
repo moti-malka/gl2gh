@@ -31,7 +31,7 @@ class ActionResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        return {
+        result = {
             "success": self.success,
             "action_id": self.action_id,
             "action_type": self.action_type,
@@ -43,6 +43,11 @@ class ActionResult:
             "rollback_data": self.rollback_data,
             "reversible": self.reversible
         }
+        if self.simulated:
+            result["simulated"] = True
+            result["simulation_outcome"] = self.simulation_outcome
+            result["simulation_message"] = self.simulation_message
+        return result
 
 
 class BaseAction(ABC):
@@ -137,17 +142,26 @@ class BaseAction(ABC):
             self.context["id_mappings"][gitlab_type] = {}
         self.context["id_mappings"][gitlab_type][str(gitlab_id)] = github_id
     
-    async def execute_with_retry(self, max_retries: int = 3, base_delay: float = 1.0) -> ActionResult:
+    async def execute_with_retry(self, max_retries: int = 3, base_delay: float = 1.0, dry_run: bool = False) -> ActionResult:
         """
         Execute action with retry logic and exponential backoff.
         
         Args:
             max_retries: Maximum number of retry attempts
             base_delay: Base delay in seconds for exponential backoff
+            dry_run: If True, simulate instead of executing
             
         Returns:
             ActionResult
         """
+        # In dry-run mode, call simulate() instead of execute()
+        if dry_run:
+            self.logger.info(f"Simulating action {self.action_id}")
+            start_time = time.time()
+            result = await self.simulate()
+            result.duration_seconds = time.time() - start_time
+            return result
+        
         # Check idempotency first
         previous_result = self.check_idempotency()
         if previous_result:

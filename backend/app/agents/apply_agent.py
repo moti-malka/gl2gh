@@ -5,10 +5,10 @@ from pathlib import Path
 import json
 import asyncio
 from datetime import datetime
-from github import Github, GithubException, RateLimitExceededException
 
 from app.agents.base_agent import BaseAgent, AgentResult
 from app.agents.actions import ACTION_REGISTRY, ActionResult
+from app.clients.github_client import GitHubClient
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +44,7 @@ class ApplyAgent(BaseAgent):
             Generate comprehensive apply reports.
             """
         )
-        self.github_client: Optional[Github] = None
+        self.github_client: Optional[GitHubClient] = None
         self.execution_context: Dict[str, Any] = {}
         self.executed_actions: List[Dict[str, Any]] = []  # Track for rollback
     
@@ -70,13 +70,21 @@ class ApplyAgent(BaseAgent):
         """Execute apply process"""
         self.log_event("INFO", "Starting apply execution")
         
+        # Check if this is a dry run
+        dry_run = inputs.get("dry_run", False)
+        if dry_run:
+            self.log_event("INFO", "Running in DRY RUN mode - no changes will be made")
+        
         try:
             output_dir = Path(inputs["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # Initialize GitHub client
             github_token = inputs["github_token"]
-            self.github_client = Github(github_token)
+            self.github_client = GitHubClient(
+                token=github_token,
+                timeout=inputs.get("timeout", 30)
+            )
             
             # Initialize execution context
             self.execution_context = {
@@ -84,7 +92,8 @@ class ApplyAgent(BaseAgent):
                 "output_dir": str(output_dir),
                 "id_mappings": {},
                 "executed_actions": {},
-                "resume_state": inputs.get("resume_state", {})
+                "resume_state": inputs.get("resume_state", {}),
+                "dry_run": dry_run
             }
             
             # Get plan
@@ -100,7 +109,11 @@ class ApplyAgent(BaseAgent):
             results = await self._execute_actions(actions, resume_from)
             
             # Generate reports
-            apply_report = self._generate_apply_report(plan, results)
+            if dry_run:
+                apply_report = self._generate_dry_run_report(plan, results)
+            else:
+                apply_report = self._generate_apply_report(plan, results)
+            
             id_mappings = self.execution_context.get("id_mappings", {})
             errors = [r for r in results if not r.success]
             
@@ -128,21 +141,28 @@ class ApplyAgent(BaseAgent):
             else:
                 status = "failed"
             
-            self.log_event("INFO", f"Apply completed: {successful_actions}/{total_actions} actions succeeded")
+            mode_text = "Dry run" if dry_run else "Apply"
+            self.log_event("INFO", f"{mode_text} completed: {successful_actions}/{total_actions} actions succeeded")
+            
+            outputs = {
+                "apply_complete": status in ["success", "partial"],
+                "actions_executed": successful_actions,
+                "actions_total": total_actions,
+                "errors": len(errors),
+                "dry_run": dry_run
+            }
+            
+            if not dry_run:
+                outputs["id_mappings"] = id_mappings
+            
+            artifacts = [str(output_dir / report_filename)]
+            if not dry_run:
+                artifacts.append(str(output_dir / "id_mappings.json"))
             
             return AgentResult(
                 status=status,
-                outputs={
-                    "apply_complete": status in ["success", "partial"],
-                    "actions_executed": successful_actions,
-                    "actions_total": total_actions,
-                    "id_mappings": id_mappings,
-                    "errors": len(errors)
-                },
-                artifacts=[
-                    str(output_dir / "apply_report.json"),
-                    str(output_dir / "id_mappings.json")
-                ],
+                outputs=outputs,
+                artifacts=artifacts,
                 errors=[e.to_dict() for e in errors]
             ).to_dict()
             
@@ -221,13 +241,16 @@ class ApplyAgent(BaseAgent):
                     context=self.execution_context
                 )
                 
-                # Handle rate limiting
-                self._check_rate_limit()
+                # Handle rate limiting (skip in dry-run mode)
+                dry_run = self.execution_context.get("dry_run", False)
+                if not dry_run:
+                    await self._check_rate_limit()
                 
-                # Execute with retry
+                # Execute with retry (or simulate if dry_run)
                 result = await action_executor.execute_with_retry(
                     max_retries=3,
-                    base_delay=1.0
+                    base_delay=1.0,
+                    dry_run=dry_run
                 )
                 results.append(result)
                 
@@ -243,9 +266,10 @@ class ApplyAgent(BaseAgent):
                     })
                 
                 # Emit progress event
+                mode_text = "simulated" if dry_run else ("completed" if result.success else "failed")
                 self.log_event(
                     "INFO" if result.success else "ERROR",
-                    f"Action {action_id} {'completed' if result.success else 'failed'}",
+                    f"Action {action_id} {mode_text}",
                     {"action_type": action_type, "outputs": result.outputs}
                 )
                 
@@ -277,15 +301,16 @@ class ApplyAgent(BaseAgent):
     async def _check_rate_limit(self):
         """Check GitHub API rate limit and wait if needed"""
         try:
-            rate_limit = self.github_client.get_rate_limit()
-            remaining = rate_limit.core.remaining
+            rate_limit = await self.github_client.get_rate_limit()
+            remaining = rate_limit.get("resources", {}).get("core", {}).get("remaining", 5000)
             
             if remaining < 100:
-                reset_time = rate_limit.core.reset
-                wait_seconds = (reset_time - datetime.utcnow()).total_seconds() + 10
+                reset_time = rate_limit.get("resources", {}).get("core", {}).get("reset", 0)
+                from datetime import datetime
+                wait_seconds = reset_time - datetime.utcnow().timestamp() + 10
                 if wait_seconds > 0:
                     self.log_event("WARN", f"Rate limit low ({remaining}), waiting {wait_seconds:.0f}s")
-                    await asyncio.sleep(wait_seconds)  # Use async sleep
+                    await asyncio.sleep(wait_seconds)
         except Exception as e:
             self.log_event("WARN", f"Could not check rate limit: {str(e)}")
     
@@ -312,6 +337,60 @@ class ApplyAgent(BaseAgent):
             "actions": [r.to_dict() for r in results],
             "id_mappings": self.execution_context.get("id_mappings", {}),
             "errors": [r.to_dict() for r in results if not r.success]
+        }
+    
+    def _generate_dry_run_report(
+        self, 
+        plan: Dict[str, Any], 
+        results: List[ActionResult]
+    ) -> Dict[str, Any]:
+        """Generate comprehensive dry run report with predictions"""
+        total_actions = len(results)
+        successful = sum(1 for r in results if r.success)
+        
+        # Count outcomes
+        outcome_counts = {
+            "would_create": 0,
+            "would_update": 0,
+            "would_skip": 0,
+            "would_fail": 0,
+            "would_execute": 0
+        }
+        
+        warnings = []
+        
+        for result in results:
+            if result.simulated and result.simulation_outcome:
+                outcome_counts[result.simulation_outcome] += 1
+            
+            # Check for actions requiring user input
+            for action in plan.get("actions", []):
+                if action.get("id") == result.action_id:
+                    if action.get("requires_user_input"):
+                        warnings.append(f"Action {result.action_id} requires manual configuration")
+                    break
+        
+        # Add warnings for common issues
+        if plan.get("user_inputs_required"):
+            warnings.append(f"{len(plan['user_inputs_required'])} secrets/values need manual configuration")
+        
+        return {
+            "version": "1.0",
+            "mode": "dry_run",
+            "timestamp": datetime.utcnow().isoformat(),
+            "plan_summary": plan.get("summary", {}),
+            "summary": {
+                "total_actions": total_actions,
+                "would_create": outcome_counts["would_create"],
+                "would_update": outcome_counts["would_update"],
+                "would_skip": outcome_counts["would_skip"],
+                "would_fail": outcome_counts["would_fail"],
+                "would_execute": outcome_counts["would_execute"],
+                "simulation_success_rate": f"{(successful/total_actions*100):.1f}%" if total_actions > 0 else "0%"
+            },
+            "actions": [r.to_dict() for r in results],
+            "warnings": warnings,
+            "note": "This is a simulation. No actual changes were made to GitHub."
         }
     
     def _save_artifact(self, path: Path, data: Any):

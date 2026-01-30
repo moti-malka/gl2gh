@@ -131,6 +131,9 @@ export const runsAPI = {
   
   cancel: (runId) =>
     apiClient.post(`/runs/${runId}/cancel`),
+  
+  getProgress: (runId) =>
+    apiClient.get(`/runs/${runId}/progress`),
 };
 
 // Events API
