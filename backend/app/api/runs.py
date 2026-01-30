@@ -266,13 +266,97 @@ async def cancel_run(
     return {"message": "Run cancelled successfully", "run_id": run_id}
 
 
+@router.get("/runs/{run_id}/checkpoint")
+async def get_checkpoint(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Get checkpoint status for a run"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Check if run has artifact root
+    if not run.artifact_root:
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
+    
+    # Look for checkpoint file in export directory
+    # Validate artifact_root to prevent path traversal
+    try:
+        artifact_root = Path(run.artifact_root).resolve()
+        checkpoint_file = (artifact_root / "export" / ".export_checkpoint.json").resolve()
+        
+        # Ensure checkpoint file is within artifact root
+        if not str(checkpoint_file).startswith(str(artifact_root)):
+            logger.warning(f"Potential path traversal attempt for run {run_id}")
+            return {
+                "has_checkpoint": False,
+                "components": {},
+                "resumable": False,
+                "resume_from": None
+            }
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
+    
+    if not checkpoint_file.exists():
+        return {
+            "has_checkpoint": False,
+            "components": {},
+            "resumable": False,
+            "resume_from": None
+        }
+    
+    try:
+        # Read checkpoint data
+        with open(checkpoint_file, 'r') as f:
+            checkpoint_data = json.load(f)
+        
+        # Determine if resumable and from where
+        components = checkpoint_data.get("components", {})
+        resumable = False
+        resume_from = None
+        
+        # Find first non-completed component
+        for component_name, component_data in components.items():
+            if component_data.get("status") in ["in_progress", "failed"]:
+                resumable = True
+                if resume_from is None:
+                    resume_from = component_name
+        
+        return {
+            "has_checkpoint": True,
+            "components": components,
+            "resumable": resumable,
+            "resume_from": resume_from,
+            "started_at": checkpoint_data.get("started_at"),
+            "updated_at": checkpoint_data.get("updated_at"),
+            "errors": checkpoint_data.get("errors", [])
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to read checkpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read checkpoint: {str(e)}"
+        )
+
+
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
     run_id: str,
     resume_request: ResumeRequest = ResumeRequest(),
     current_user: User = Depends(require_operator)
 ):
-    """Resume a failed or cancelled run"""
+    """Resume a failed or cancelled run from checkpoint"""
     run = await check_run_access(run_id, current_user)
     
     run_service = RunService()
@@ -286,8 +370,12 @@ async def resume_run(
         )
     
     # Dispatch Celery task to resume the migration/discovery process
+    # Set resume flag in config
+    config = resumed_run.config_snapshot.copy()
+    config["resume"] = True
+    
     try:
-        run_migration.delay(str(resumed_run.id), resumed_run.mode, resumed_run.config_snapshot)
+        run_migration.delay(str(resumed_run.id), resumed_run.mode, config)
     except Exception as e:
         # If task dispatch fails, revert run status back to failed
         await run_service.update_run_status(
@@ -301,6 +389,62 @@ async def resume_run(
         )
     
     return {"message": "Run resumed successfully", "run_id": run_id}
+
+
+@router.delete("/runs/{run_id}/checkpoint")
+async def clear_checkpoint(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Clear checkpoint for a run to start fresh"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Only allow clearing checkpoint for failed or canceled runs
+    if run.status not in ["FAILED", "CANCELED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot clear checkpoint for run with status {run.status}. Only FAILED or CANCELED runs can have checkpoints cleared."
+        )
+    
+    # Check if run has artifact root
+    if not run.artifact_root:
+        return {"message": "No checkpoint to clear"}
+    
+    # Look for checkpoint file in export directory
+    # Validate artifact_root to prevent path traversal
+    try:
+        artifact_root = Path(run.artifact_root).resolve()
+        checkpoint_file = (artifact_root / "export" / ".export_checkpoint.json").resolve()
+        
+        # Ensure checkpoint file is within artifact root
+        if not str(checkpoint_file).startswith(str(artifact_root)):
+            logger.warning(f"Potential path traversal attempt for run {run_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid checkpoint path"
+            )
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact path"
+        )
+    
+    if not checkpoint_file.exists():
+        return {"message": "No checkpoint to clear"}
+    
+    try:
+        # Delete checkpoint file
+        checkpoint_file.unlink()
+        logger.info(f"Cleared checkpoint for run {run_id}")
+        return {"message": "Checkpoint cleared successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to clear checkpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear checkpoint: {str(e)}"
+        )
 
 
 @router.get("/runs/{run_id}/artifacts", response_model=List[ArtifactResponse])

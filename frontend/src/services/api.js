@@ -132,6 +132,14 @@ export const runsAPI = {
   cancel: (runId) =>
     apiClient.post(`/runs/${runId}/cancel`),
   
+  getCheckpoint: (runId) =>
+    apiClient.get(`/runs/${runId}/checkpoint`),
+  
+  resume: (runId) =>
+    apiClient.post(`/runs/${runId}/resume`),
+  
+  clearCheckpoint: (runId) =>
+    apiClient.delete(`/runs/${runId}/checkpoint`),
   getProgress: (runId) =>
     apiClient.get(`/runs/${runId}/progress`),
 };
