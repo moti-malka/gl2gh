@@ -59,6 +59,7 @@ class ActionType:
     
     # Preservation
     ARTIFACT_COMMIT = "artifact_commit"
+    ATTACHMENTS_COMMIT = "attachments_commit"
 
 
 class Phase:
@@ -713,46 +714,113 @@ class PlanAgent(BaseAgent):
         # Phase 7: Release Import
         releases = export_data.get("releases", [])
         for release in releases:
-            generator.add_action(
+            tag_name = release.get("tag_name")
+            
+            # Create release
+            release_action_id = generator.add_action(
                 action_type=ActionType.RELEASE_CREATE,
                 component="releases",
                 phase=Phase.RELEASE_IMPORT,
-                description=f"Create release: {release.get('tag_name')}",
+                description=f"Create release: {tag_name}",
                 parameters={
                     "target_repo": generator.github_target,
-                    "tag_name": release.get("tag_name"),
+                    "tag": tag_name,
                     "name": release.get("name"),
                     "body": release.get("description", ""),
                     "draft": False,
                     "prerelease": False,
-                    "assets": release.get("assets", [])
+                    "gitlab_release_id": release.get("id")
                 },
                 dependencies=[repo_push_id],
                 dry_run_safe=False,
                 reversible=True,
                 estimated_duration_seconds=20
             )
+            
+            # Upload release assets
+            assets = release.get("assets", {})
+            links = assets.get("links", []) if isinstance(assets, dict) else []
+            
+            for asset in links:
+                local_path = asset.get("local_path")
+                asset_name = asset.get("name")
+                
+                # Only create upload action if asset was downloaded
+                if local_path and asset_name:
+                    generator.add_action(
+                        action_type=ActionType.RELEASE_ASSET_UPLOAD,
+                        component="releases",
+                        phase=Phase.RELEASE_IMPORT,
+                        description=f"Upload asset: {tag_name}/{asset_name}",
+                        parameters={
+                            "target_repo": generator.github_target,
+                            "release_tag": tag_name,
+                            "asset_path": local_path,
+                            "asset_name": asset_name,
+                            "content_type": asset.get("content_type", "application/octet-stream")
+                        },
+                        dependencies=[release_action_id],
+                        dry_run_safe=False,
+                        reversible=True,
+                        estimated_duration_seconds=10
+                    )
         
         # Phase 8: Package Import
-        packages = export_data.get("packages", [])
+        # Read packages from export directory
+        output_dir = Path(export_data.get("output_dir", ""))
+        packages_file = output_dir / "packages" / "packages.json"
+        packages = []
+        
+        if packages_file.exists():
+            try:
+                with open(packages_file, 'r') as f:
+                    packages = json.load(f)
+                self.log_event("INFO", f"Loaded {len(packages)} packages from export")
+            except Exception as e:
+                self.log_event("WARNING", f"Failed to load packages.json: {e}")
+        
         for package in packages:
+            package_id = package.get("id")
+            package_name = package.get("name", "unknown")
+            package_type = package.get("package_type", "unknown")
+            package_version = package.get("version", "unknown")
+            migrable = package.get("migrable", False)
+            files = package.get("files", [])
+            
+            # Generate action description based on migrability
+            if not migrable:
+                description = f"Document non-migrable package: {package_type}/{package_name}@{package_version}"
+            elif not files:
+                description = f"Document package without files: {package_type}/{package_name}@{package_version}"
+            else:
+                description = f"Publish {package_type} package: {package_name}@{package_version}"
+            
             generator.add_action(
                 action_type=ActionType.PACKAGE_PUBLISH,
                 component="packages",
                 phase=Phase.PACKAGE_IMPORT,
-                description=f"Publish {package.get('type', 'package')}: {package.get('name')}",
+                description=description,
                 parameters={
-                    "type": package.get("type", "container"),
-                    "source_image": package.get("source_image"),
-                    "target_image": package.get("target_image"),
-                    "local_path": package.get("local_path")
+                    "target_repo": generator.github_target,
+                    "package_type": package_type,
+                    "package_name": package_name,
+                    "version": package_version,
+                    "files": files,
+                    "migrable": migrable,
+                    "package_id": package_id
                 },
                 dependencies=[repo_create_id],
                 dry_run_safe=False,
                 reversible=False,
-                estimated_duration_seconds=300,
-                skip_if={"condition": "no_packages", "check": "package_count == 0"}
+                estimated_duration_seconds=300 if files else 5,
+                skip_if=None  # Don't skip, we want to report status
             )
+        
+        # Add a summary log if there are non-migrable packages
+        non_migrable_packages = [p for p in packages if not p.get("migrable", False)]
+        if non_migrable_packages:
+            self.log_event("INFO", f"Found {len(non_migrable_packages)} non-migrable packages that require manual migration")
+        
         
         # Phase 9: Governance - Branch protection
         branch_protections = transform_data.get("branch_protections", [])

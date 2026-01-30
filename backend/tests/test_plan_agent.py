@@ -576,3 +576,96 @@ async def test_webhook_action_generation(plan_agent, tmp_path):
     user_inputs = plan.get("user_inputs_required", [])
     webhook_secret_inputs = [i for i in user_inputs if i["type"] == "webhook_secret"]
     assert len(webhook_secret_inputs) == 2, "Expected 2 webhook secret inputs"
+def test_plan_generator_release_assets():
+    """Test release asset upload actions are created"""
+    from app.agents.plan_agent import PlanGenerator, ActionType, Phase
+    from pathlib import Path
+    
+    generator = PlanGenerator("run-001", "proj-001", "user/repo", "target/repo")
+    
+    # Create release and asset paths
+    export_dir = Path("/tmp/export")
+    release_dir = export_dir / "releases" / "v1.0.0"
+    asset1_path = release_dir / "myapp-linux"
+    asset2_path = release_dir / "myapp-darwin"
+    
+    # Manually create a release action
+    release_id = generator.add_action(
+        action_type=ActionType.RELEASE_CREATE,
+        component="releases",
+        phase=Phase.RELEASE_IMPORT,
+        description="Create release: v1.0.0",
+        parameters={
+            "target_repo": "target/repo",
+            "tag": "v1.0.0",
+            "name": "Release 1.0.0",
+            "body": "First release",
+            "draft": False,
+            "prerelease": False,
+            "gitlab_release_id": 1
+        },
+        dependencies=[],
+        dry_run_safe=False,
+        reversible=True,
+        estimated_duration_seconds=20
+    )
+    
+    # Create asset upload actions
+    asset1_id = generator.add_action(
+        action_type=ActionType.RELEASE_ASSET_UPLOAD,
+        component="releases",
+        phase=Phase.RELEASE_IMPORT,
+        description="Upload asset: v1.0.0/myapp-linux",
+        parameters={
+            "target_repo": "target/repo",
+            "release_tag": "v1.0.0",
+            "asset_path": str(asset1_path),
+            "asset_name": "myapp-linux",
+            "content_type": "application/octet-stream"
+        },
+        dependencies=[release_id],
+        dry_run_safe=False,
+        reversible=True,
+        estimated_duration_seconds=10
+    )
+    
+    asset2_id = generator.add_action(
+        action_type=ActionType.RELEASE_ASSET_UPLOAD,
+        component="releases",
+        phase=Phase.RELEASE_IMPORT,
+        description="Upload asset: v1.0.0/myapp-darwin",
+        parameters={
+            "target_repo": "target/repo",
+            "release_tag": "v1.0.0",
+            "asset_path": str(asset2_path),
+            "asset_name": "myapp-darwin",
+            "content_type": "application/octet-stream"
+        },
+        dependencies=[release_id],
+        dry_run_safe=False,
+        reversible=True,
+        estimated_duration_seconds=10
+    )
+    
+    # Build plan
+    plan = generator.build_plan()
+    
+    # Verify actions
+    assert len(plan["actions"]) == 3
+    
+    # Find actions by type
+    release_actions = [a for a in plan["actions"] if a["type"] == ActionType.RELEASE_CREATE]
+    asset_actions = [a for a in plan["actions"] if a["type"] == ActionType.RELEASE_ASSET_UPLOAD]
+    
+    assert len(release_actions) == 1
+    assert len(asset_actions) == 2
+    
+    # Verify asset actions have correct parameters
+    assert asset_actions[0]["parameters"]["asset_name"] == "myapp-linux"
+    assert asset_actions[0]["parameters"]["release_tag"] == "v1.0.0"
+    assert asset_actions[1]["parameters"]["asset_name"] == "myapp-darwin"
+    assert asset_actions[1]["parameters"]["release_tag"] == "v1.0.0"
+    
+    # Verify dependencies
+    assert release_id in asset_actions[0]["dependencies"]
+    assert release_id in asset_actions[1]["dependencies"]

@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
+import { ConnectionTest } from '../components/ConnectionTest';
 import './ProjectWizard.css';
 
 export const ProjectWizardPage = () => {
@@ -190,6 +191,12 @@ export const ProjectWizardPage = () => {
                   Token needs: api, read_repository, read_user scopes
                 </span>
               </div>
+
+              <ConnectionTest 
+                type="gitlab"
+                url={projectData.gitlab_url}
+                token={projectData.gitlab_token}
+              />
             </div>
           )}
 
@@ -227,6 +234,12 @@ export const ProjectWizardPage = () => {
                   Leave empty to use your personal account
                 </span>
               </div>
+
+              <ConnectionTest 
+                type="github"
+                url="https://api.github.com"
+                token={projectData.github_token}
+              />
             </div>
           )}
 

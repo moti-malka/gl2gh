@@ -6,6 +6,7 @@ from .user_mapper import UserMapper
 from .content_transformer import ContentTransformer
 from .gap_analyzer import GapAnalyzer
 from .webhook_transformer import WebhookTransformer
+from .protection_transformer import ProtectionRulesTransformer
 
 __all__ = [
     "BaseTransformer",
@@ -15,4 +16,5 @@ __all__ = [
     "ContentTransformer",
     "GapAnalyzer",
     "WebhookTransformer",
+    "ProtectionRulesTransformer",
 ]
