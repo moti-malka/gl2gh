@@ -231,7 +231,10 @@ class RegistryClient:
                 "# 2. GITLAB_TOKEN environment variable set with GitLab registry access",
                 "# 3. GITHUB_TOKEN environment variable set with GHCR write access",
                 "",
-                "set -e",
+                "# Note: This script continues even if individual images fail",
+                "# Failed images will be logged at the end",
+                "",
+                "FAILED_IMAGES=()",
                 "",
                 "# Login to registries",
                 f"echo \"${{GITLAB_TOKEN}}\" | docker login registry.gitlab.com -u oauth2 --password-stdin",
@@ -248,15 +251,30 @@ class RegistryClient:
                     
                     lines.extend([
                         f"echo \"Migrating {gitlab_url}...\"",
-                        f"docker pull {gitlab_url}",
-                        f"docker tag {gitlab_url} {github_url}",
-                        f"docker push {github_url}",
-                        f"docker rmi {gitlab_url} {github_url}",
+                        f"if docker pull {gitlab_url} && \\",
+                        f"   docker tag {gitlab_url} {github_url} && \\",
+                        f"   docker push {github_url}; then",
+                        f"  echo \"  ✓ Successfully migrated {gitlab_url}\"",
+                        f"  docker rmi {gitlab_url} {github_url} 2>/dev/null || true",
+                        f"else",
+                        f"  echo \"  ✗ Failed to migrate {gitlab_url}\"",
+                        f"  FAILED_IMAGES+=('{gitlab_url}')",
+                        f"fi",
                         ""
                     ])
             
             lines.extend([
-                "echo \"Migration complete!\"",
+                "# Report results",
+                "echo \"\"",
+                "if [ ${#FAILED_IMAGES[@]} -eq 0 ]; then",
+                "  echo \"✅ All images migrated successfully!\"",
+                "else",
+                "  echo \"⚠️  Migration completed with ${#FAILED_IMAGES[@]} failures:\"",
+                "  for img in \"${FAILED_IMAGES[@]}\"; do",
+                "    echo \"  - $img\"",
+                "  done",
+                "  exit 1",
+                "fi",
                 ""
             ])
             

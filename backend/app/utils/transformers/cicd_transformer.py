@@ -238,16 +238,22 @@ class CICDTransformer(BaseTransformer):
         }
         
         transformed = script
+        transformations_applied = []
+        
         for old, new in transformations.items():
             if old in transformed:
                 transformed = transformed.replace(old, new)
-                # Track this as a conversion gap
-                if old not in ['$CI_REGISTRY', '${CI_REGISTRY}']:  # Don't report base registry changes
-                    self.conversion_gaps.append({
-                        "type": "registry_url",
-                        "message": f"Transformed registry reference: {old} → {new}",
-                        "action": "Verify registry URLs are correct for your setup"
-                    })
+                # Track this transformation but only report significant ones (not base registry)
+                if old not in ['$CI_REGISTRY', '${CI_REGISTRY}'] and old not in transformations_applied:
+                    transformations_applied.append(old)
+        
+        # Report conversion gaps only once per transformation type
+        if transformations_applied:
+            self.conversion_gaps.append({
+                "type": "registry_url",
+                "message": f"Transformed registry references: {', '.join(transformations_applied)}",
+                "action": "Verify registry URLs are correct for your setup"
+            })
         
         return transformed
     

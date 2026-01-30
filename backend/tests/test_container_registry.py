@@ -94,7 +94,6 @@ class TestGitLabClientRegistry:
         # Mock the paginated_request to raise an exception
         async def mock_paginated_error(*args, **kwargs):
             raise Exception("API Error")
-            yield  # Never reached
         
         with patch.object(client, 'paginated_request', mock_paginated_error):
             repos = await client.list_registry_repositories(123)
@@ -365,7 +364,7 @@ class TestExportAgentRegistry:
     """Tests for export agent container registry export"""
     
     @pytest.mark.asyncio
-    async def test_export_container_registry_disabled(self):
+    async def test_export_container_registry_disabled(self, tmp_path):
         """Test export when container registry is disabled"""
         from app.agents.export_agent import ExportAgent
         
@@ -380,7 +379,7 @@ class TestExportAgentRegistry:
             'container_registry_enabled': False
         }
         
-        output_dir = Path('/tmp/test_export')
+        output_dir = tmp_path / "test_export"
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / 'container_registry').mkdir(parents=True, exist_ok=True)
         
@@ -394,7 +393,7 @@ class TestExportAgentRegistry:
         assert disabled_file.exists()
     
     @pytest.mark.asyncio
-    async def test_export_container_registry_with_images(self):
+    async def test_export_container_registry_with_images(self, tmp_path):
         """Test export when images exist"""
         from app.agents.export_agent import ExportAgent
         
@@ -420,7 +419,7 @@ class TestExportAgentRegistry:
             'container_registry_enabled': True
         }
         
-        output_dir = Path('/tmp/test_export_images')
+        output_dir = tmp_path / "test_export_images"
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / 'container_registry').mkdir(parents=True, exist_ok=True)
         
