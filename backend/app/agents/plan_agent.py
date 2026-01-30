@@ -779,17 +779,29 @@ class PlanAgent(BaseAgent):
             )
         
         # Phase 10: Integrations - Webhooks
-        webhooks = export_data.get("webhooks", [])
+        webhooks = transform_data.get("webhooks", [])
         for webhook in webhooks:
+            # Check if webhook has events
+            github_events = webhook.get("events", [])
+            if not github_events:
+                continue
+            
+            # Secret handling - GitLab API doesn't return secrets
             requires_input = webhook.get("secret") is None
             if requires_input:
                 user_inputs_required.append({
                     "type": "webhook_secret",
                     "url": webhook.get("url"),
-                    "reason": "Webhook secret not available in export",
+                    "reason": "Webhook secret not available in export (GitLab API limitation)",
                     "required": False,
                     "fallback": "generate_random"
                 })
+            
+            # Check for unmapped events
+            unmapped_events = webhook.get("unmapped_events", [])
+            if unmapped_events:
+                # Add warning about unmapped events
+                pass  # Could log or add to plan metadata
             
             generator.add_action(
                 action_type=ActionType.WEBHOOK_CREATE,
@@ -799,10 +811,11 @@ class PlanAgent(BaseAgent):
                 parameters={
                     "target_repo": generator.github_target,
                     "url": webhook.get("url"),
-                    "content_type": "json",
+                    "content_type": webhook.get("content_type", "json"),
                     "secret": "${USER_INPUT_REQUIRED}" if requires_input else webhook.get("secret"),
-                    "events": webhook.get("events", ["push", "pull_request"]),
-                    "active": True
+                    "events": github_events,
+                    "active": webhook.get("active", True),
+                    "insecure_ssl": webhook.get("insecure_ssl", False)
                 },
                 dependencies=[repo_create_id],
                 dry_run_safe=True,
