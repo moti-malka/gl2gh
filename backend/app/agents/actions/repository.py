@@ -239,3 +239,56 @@ class ConfigureRepositoryAction(BaseAction):
                 outputs={},
                 error=str(e)
             )
+
+
+class UpdateGitmodulesAction(BaseAction):
+    """Update .gitmodules file with rewritten URLs"""
+    
+    async def execute(self) -> ActionResult:
+        try:
+            target_repo = self.parameters["target_repo"]
+            gitmodules_content = self.parameters["gitmodules_content"]
+            
+            repo = self.github_client.get_repo(target_repo)
+            
+            # Try to get existing .gitmodules file
+            try:
+                contents = repo.get_contents(".gitmodules")
+                # Update existing file
+                repo.update_file(
+                    ".gitmodules",
+                    "Update submodule URLs for GitHub migration",
+                    gitmodules_content,
+                    contents.sha
+                )
+                action = "updated"
+            except GithubException as e:
+                if e.status == 404:
+                    # File doesn't exist, create it
+                    repo.create_file(
+                        ".gitmodules",
+                        "Add .gitmodules file with updated URLs",
+                        gitmodules_content
+                    )
+                    action = "created"
+                else:
+                    raise
+            
+            return ActionResult(
+                success=True,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={
+                    "gitmodules_updated": True,
+                    "target_repo": target_repo,
+                    "action": action
+                }
+            )
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_id=self.action_id,
+                action_type=self.action_type,
+                outputs={},
+                error=str(e)
+            )

@@ -5,7 +5,8 @@ from .repository import (
     CreateRepositoryAction,
     PushCodeAction,
     PushLFSAction,
-    ConfigureRepositoryAction
+    ConfigureRepositoryAction,
+    UpdateGitmodulesAction
 )
 from .ci_cd import (
     CommitWorkflowAction,
@@ -43,6 +44,7 @@ __all__ = [
     "PushCodeAction",
     "PushLFSAction",
     "ConfigureRepositoryAction",
+    "UpdateGitmodulesAction",
     "CommitWorkflowAction",
     "CreateEnvironmentAction",
     "SetSecretAction",
@@ -70,6 +72,7 @@ ACTION_REGISTRY = {
     "repo_push": PushCodeAction,
     "lfs_configure": PushLFSAction,
     "repo_configure": ConfigureRepositoryAction,
+    "gitmodules_update": UpdateGitmodulesAction,
     "workflow_commit": CommitWorkflowAction,
     "environment_create": CreateEnvironmentAction,
     "secret_set": SetSecretAction,
