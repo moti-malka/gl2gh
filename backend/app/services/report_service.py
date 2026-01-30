@@ -395,9 +395,14 @@ class MigrationReportGenerator(BaseService):
     
     def _format_as_html(self, report_data: Dict[str, Any]) -> str:
         """Format report as HTML"""
+        import html as html_module
         
         # Status emoji
         status_emoji = "✅" if report_data["status"] == "COMPLETED" else "❌" if report_data["status"] == "FAILED" else "⏳"
+        
+        # Escape user-provided strings to prevent HTML injection
+        project_name = html_module.escape(report_data['project']['name'])
+        status = html_module.escape(report_data['status'])
         
         html = []
         html.append("<!DOCTYPE html>")
@@ -423,8 +428,8 @@ class MigrationReportGenerator(BaseService):
         
         # Header
         html.append("<h1>Migration Report</h1>")
-        html.append(f"<p><strong>Project:</strong> {report_data['project']['name']}</p>")
-        html.append(f"<p class='status'><strong>Status:</strong> {status_emoji} {report_data['status']}</p>")
+        html.append(f"<p><strong>Project:</strong> {project_name}</p>")
+        html.append(f"<p class='status'><strong>Status:</strong> {status_emoji} {status}</p>")
         
         if report_data.get("duration_seconds"):
             duration_mins = report_data["duration_seconds"] / 60
@@ -462,6 +467,8 @@ class MigrationReportGenerator(BaseService):
                 actions_by_type[atype].append(action)
             
             for atype, actions in actions_by_type.items():
+                # Escape action type to prevent HTML injection
+                escaped_type = html_module.escape(atype)
                 if atype == "ci_secrets":
                     html.append(f"<li><strong>{len(actions)} CI/CD Secrets</strong> need to be copied manually</li>")
                 elif atype == "webhooks":
@@ -469,7 +476,7 @@ class MigrationReportGenerator(BaseService):
                 elif atype == "verification_issue":
                     html.append(f"<li><strong>{len(actions)} Verification Issues</strong> need attention</li>")
                 else:
-                    html.append(f"<li><strong>{len(actions)} {atype}</strong> items need attention</li>")
+                    html.append(f"<li><strong>{len(actions)} {escaped_type}</strong> items need attention</li>")
             
             html.append("</ol>")
             html.append("</div>")
@@ -484,7 +491,9 @@ class MigrationReportGenerator(BaseService):
             status = project["status"]
             verify_status = status.get("verify", "PENDING")
             status_emoji = "✅" if verify_status == "COMPLETED" else "❌" if verify_status == "FAILED" else "⏳"
-            html.append(f"<li>{status_emoji} <code>{project['path']}</code>")
+            # Escape project path to prevent HTML injection
+            escaped_path = html_module.escape(project['path'])
+            html.append(f"<li>{status_emoji} <code>{escaped_path}</code>")
             if project.get("errors"):
                 html.append(f" - <strong>Errors:</strong> {len(project['errors'])}")
             html.append("</li>")

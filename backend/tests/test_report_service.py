@@ -113,7 +113,7 @@ async def test_generate_json_report(db, test_project):
         # Verify statistics from apply_report
         assert report["summary"]["components"]["issues"]["migrated"] == 2
         assert report["summary"]["components"]["issues"]["failed"] == 1
-        assert report["summary"]["components"]["pull_requests"]["migrated"] == 2
+        assert report["summary"]["components"]["merge_requests_to_prs"]["migrated"] == 2
         
     finally:
         # Cleanup temp directory

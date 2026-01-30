@@ -481,7 +481,11 @@ async def get_migration_report(
     run = await check_run_access(run_id, current_user)
     
     try:
-        generator = MigrationReportGenerator()
+        # Get database instance following the same pattern as other services
+        from app.db import get_database
+        db = await get_database()
+        
+        generator = MigrationReportGenerator(db)
         report = await generator.generate(run_id, format)
         
         # For JSON format, return as-is
