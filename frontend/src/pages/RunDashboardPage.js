@@ -7,12 +7,14 @@ import { runsAPI, eventsAPI } from '../services/api';
 import { wsService } from '../services/websocket';
 import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
+import { CheckpointPanel } from '../components/CheckpointPanel';
 import './RunDashboardPage.css';
 
 export const RunDashboardPage = () => {
   const { runId } = useParams();
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
+  const [checkpoint, setCheckpoint] = useState(null);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
 
@@ -26,6 +28,17 @@ export const RunDashboardPage = () => {
       
       setRun(runResponse.data);
       setEvents(eventsResponse.data);
+      
+      // Load checkpoint if run is failed or canceled
+      if (['FAILED', 'CANCELED'].includes(runResponse.data.status)) {
+        try {
+          const checkpointResponse = await runsAPI.getCheckpoint(runId);
+          setCheckpoint(checkpointResponse.data);
+        } catch (error) {
+          console.log('No checkpoint available:', error);
+          setCheckpoint(null);
+        }
+      }
     } catch (error) {
       console.error('Failed to load run:', error);
       toast.error('Failed to load run details');
@@ -65,6 +78,32 @@ export const RunDashboardPage = () => {
     } catch (error) {
       console.error('Failed to cancel run:', error);
       toast.error('Failed to cancel run');
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await runsAPI.resume(runId);
+      toast.success('Run resumed successfully');
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to resume run:', error);
+      toast.error('Failed to resume run');
+    }
+  };
+
+  const handleStartFresh = async () => {
+    if (!window.confirm('Are you sure you want to clear the checkpoint and start fresh? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await runsAPI.clearCheckpoint(runId);
+      toast.success('Checkpoint cleared');
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to clear checkpoint:', error);
+      toast.error('Failed to clear checkpoint');
     }
   };
 
@@ -142,6 +181,16 @@ export const RunDashboardPage = () => {
           <p>{getElapsedTime()}</p>
         </div>
       </div>
+
+      {/* Show checkpoint panel for failed/canceled runs */}
+      {['FAILED', 'CANCELED'].includes(run.status) && checkpoint && checkpoint.has_checkpoint && (
+        <CheckpointPanel
+          runId={runId}
+          checkpoint={checkpoint}
+          onResume={handleResume}
+          onStartFresh={handleStartFresh}
+        />
+      )}
 
       <div className="progress-section">
         <h2>Overall Progress</h2>
