@@ -147,8 +147,57 @@ build:
     
     # Mock packages
     client.list_packages.return_value = [
-        {"name": "package1", "version": "1.0.0"}
+        {
+            "id": 1,
+            "name": "package1",
+            "version": "1.0.0",
+            "package_type": "npm",
+            "created_at": "2024-01-01T00:00:00Z"
+        },
+        {
+            "id": 2,
+            "name": "maven-package",
+            "version": "2.0.0",
+            "package_type": "maven",
+            "created_at": "2024-01-02T00:00:00Z"
+        }
     ]
+    
+    # Mock package details with files
+    async def mock_get_package_details(project_id, package_id):
+        if package_id == 1:
+            return {
+                "id": 1,
+                "name": "package1",
+                "version": "1.0.0",
+                "package_type": "npm",
+                "package_files": [
+                    {"id": 101, "file_name": "package1-1.0.0.tgz", "size": 1024}
+                ]
+            }
+        elif package_id == 2:
+            return {
+                "id": 2,
+                "name": "maven-package",
+                "version": "2.0.0",
+                "package_type": "maven",
+                "package_files": [
+                    {"id": 201, "file_name": "maven-package-2.0.0.jar", "size": 2048},
+                    {"id": 202, "file_name": "maven-package-2.0.0.pom", "size": 512}
+                ]
+            }
+        return {}
+    
+    client.get_package_details = mock_get_package_details
+    
+    # Mock package file download
+    async def mock_download_package_file(project_id, package_id, file_id, output_path):
+        # Create a dummy file
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(f"mock package file {file_id}")
+        return True
+    
+    client.download_package_file = mock_download_package_file
     
     # Mock settings
     client.list_protected_branches.return_value = [
@@ -396,7 +445,7 @@ async def test_export_releases_with_failed_downloads(export_agent, tmp_path):
 
 @pytest.mark.asyncio
 async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
-    """Test packages export"""
+    """Test packages export with file downloads"""
     export_agent.gitlab_client = mock_gitlab_client
     output_dir = tmp_path / "export"
     output_dir.mkdir(parents=True)
@@ -406,10 +455,55 @@ async def test_export_packages(export_agent, mock_gitlab_client, tmp_path):
     result = await export_agent._export_packages(123, project, output_dir)
     
     assert result["success"] is True
-    assert result["count"] == 1
+    assert result["count"] == 2  # Two packages in mock
+    assert result["downloaded_files"] == 3  # npm: 1 file, maven: 2 files
     
+    # Check packages.json exists and has expected structure
     packages_file = output_dir / "packages" / "packages.json"
     assert packages_file.exists()
+    
+    with open(packages_file) as f:
+        packages = json.load(f)
+        assert len(packages) == 2
+        
+        # Check npm package
+        npm_pkg = next(p for p in packages if p["package_type"] == "npm")
+        assert npm_pkg["name"] == "package1"
+        assert npm_pkg["version"] == "1.0.0"
+        assert npm_pkg["migrable"] is True
+        assert len(npm_pkg["files"]) == 1
+        assert npm_pkg["files"][0]["file_name"] == "package1-1.0.0.tgz"
+        
+        # Check maven package
+        maven_pkg = next(p for p in packages if p["package_type"] == "maven")
+        assert maven_pkg["name"] == "maven-package"
+        assert maven_pkg["version"] == "2.0.0"
+        assert maven_pkg["migrable"] is True
+        assert len(maven_pkg["files"]) == 2
+    
+    # Check inventory.json exists
+    inventory_file = output_dir / "packages" / "inventory.json"
+    assert inventory_file.exists()
+    
+    with open(inventory_file) as f:
+        inventory = json.load(f)
+        assert inventory["total_packages"] == 2
+        assert inventory["downloaded_files"] == 3
+        assert inventory["migrable_count"] == 2
+        assert inventory["non_migrable_count"] == 0
+        assert "npm" in inventory["by_type"]
+        assert "maven" in inventory["by_type"]
+    
+    # Check that actual package files were created
+    npm_file = output_dir / "packages" / "npm" / "package1" / "1.0.0" / "package1-1.0.0.tgz"
+    assert npm_file.exists()
+    
+    maven_jar = output_dir / "packages" / "maven" / "maven-package" / "2.0.0" / "maven-package-2.0.0.jar"
+    assert maven_jar.exists()
+    
+    maven_pom = output_dir / "packages" / "maven" / "maven-package" / "2.0.0" / "maven-package-2.0.0.pom"
+    assert maven_pom.exists()
+
 
 
 @pytest.mark.asyncio
