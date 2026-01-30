@@ -188,7 +188,7 @@ class TestUserMapper:
         gitlab_users = [
             {"id": 1, "username": "user1", "email": "user1@example.com", "name": "User One"},
             {"id": 2, "username": "user2", "email": "user2@example.com", "name": "User Two"},
-            {"id": 3, "username": "user3", "email": "user3@other.com", "name": "User Three"}
+            {"id": 3, "username": "olduser", "email": "user3@other.com", "name": "Old User"}  # Changed to avoid fuzzy match
         ]
         
         github_users = [
@@ -208,7 +208,7 @@ class TestUserMapper:
         stats = result.data["stats"]
         assert stats["total"] == 3
         assert stats["high_confidence"] == 2  # user1, user2 matched by email
-        assert stats["unmapped"] == 1  # user3 unmapped
+        assert stats["unmapped"] == 1  # olduser unmapped
     
     def test_org_members_included(self):
         """Test that GitHub org members are included in matching"""
