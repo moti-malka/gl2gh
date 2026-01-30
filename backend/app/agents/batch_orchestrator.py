@@ -25,15 +25,23 @@ class SharedResources:
         
         Args:
             github_rate_limit: Maximum GitHub API calls across all parallel jobs
+                              (Note: Rate limiting implementation is a future enhancement)
         """
         self.user_mapping_cache: Dict[str, Any] = {}
-        self.github_rate_limiter = None  # Will be set if needed
+        # Note: Rate limiting is a placeholder for future implementation
+        # Currently, rate limiting is handled at the client level
+        self.github_rate_limit = github_rate_limit
+        self.github_rate_limiter = None  # Reserved for future rate limiting implementation
         self._lock = asyncio.Lock()
         self.logger = get_logger(__name__)
     
     async def get_user_mapping(self, gitlab_user_id: str) -> Optional[Dict[str, Any]]:
         """
         Get cached user mapping.
+        
+        Note: This is a placeholder for future integration. User mapping
+        functionality will be integrated with the migration agents in a
+        future enhancement.
         
         Args:
             gitlab_user_id: GitLab user ID
@@ -47,6 +55,10 @@ class SharedResources:
     async def set_user_mapping(self, gitlab_user_id: str, mapping: Dict[str, Any]):
         """
         Cache user mapping.
+        
+        Note: This is a placeholder for future integration. User mapping
+        functionality will be integrated with the migration agents in a
+        future enhancement.
         
         Args:
             gitlab_user_id: GitLab user ID
@@ -82,7 +94,6 @@ class BatchOrchestrator:
         """
         self.logger = get_logger(__name__)
         self.shared_resources = shared_resources or SharedResources()
-        self.orchestrator = AgentOrchestrator()
     
     async def execute_batch_migration(
         self,

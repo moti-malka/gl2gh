@@ -509,7 +509,7 @@ async def batch_migrate_projects(
         )
     
     # Validate project_ids list
-    if not request.project_ids or len(request.project_ids) == 0:
+    if not request.project_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="project_ids list cannot be empty"
@@ -550,8 +550,20 @@ async def batch_migrate_projects(
         
         # Get GitHub org from project settings
         settings = project.settings
-        if settings.github:
+        if settings and hasattr(settings, 'github') and settings.github:
             github_org = settings.github.get("org")
+        
+        # Build config with safe attribute access
+        max_api_calls = 5000
+        max_per_project_calls = 200
+        include_archived = False
+        
+        if settings and hasattr(settings, 'budgets') and settings.budgets:
+            max_api_calls = settings.budgets.get("max_api_calls", 5000)
+            max_per_project_calls = settings.budgets.get("max_per_project_calls", 200)
+        
+        if settings and hasattr(settings, 'behavior') and settings.behavior:
+            include_archived = settings.behavior.get("include_archived", False)
         
         # Prepare base config shared across all projects
         base_config = {
@@ -559,9 +571,9 @@ async def batch_migrate_projects(
             "gitlab_token": gitlab_token,
             "github_token": github_token,
             "github_org": github_org,
-            "max_api_calls": settings.budgets.get("max_api_calls", 5000) if settings.budgets else 5000,
-            "max_per_project_calls": settings.budgets.get("max_per_project_calls", 200) if settings.budgets else 200,
-            "include_archived": settings.behavior.get("include_archived", False) if settings.behavior else False,
+            "max_api_calls": max_api_calls,
+            "max_per_project_calls": max_per_project_calls,
+            "include_archived": include_archived,
         }
         
         # Import and dispatch the batch migration task

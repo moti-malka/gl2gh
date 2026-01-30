@@ -70,8 +70,11 @@ class TestBatchOrchestrator:
             "agents": {}
         }
         
+        # Patch the AgentOrchestrator class
+        from app.agents.orchestrator import AgentOrchestrator
+        
         with patch.object(
-            batch_orchestrator.orchestrator.__class__,
+            AgentOrchestrator,
             'run_migration',
             new_callable=AsyncMock,
             return_value=mock_result
@@ -110,8 +113,10 @@ class TestBatchOrchestrator:
             "agents": {}
         }
         
+        from app.agents.orchestrator import AgentOrchestrator
+        
         with patch.object(
-            batch_orchestrator.orchestrator.__class__,
+            AgentOrchestrator,
             'run_migration',
             new_callable=AsyncMock,
             return_value=mock_result
@@ -159,8 +164,10 @@ class TestBatchOrchestrator:
                     "agents": {}
                 }
         
+        from app.agents.orchestrator import AgentOrchestrator
+        
         with patch.object(
-            batch_orchestrator.orchestrator.__class__,
+            AgentOrchestrator,
             'run_migration',
             new_callable=AsyncMock,
             side_effect=mock_run_migration
@@ -196,8 +203,10 @@ class TestBatchOrchestrator:
             "error": "Simulated failure"
         }
         
+        from app.agents.orchestrator import AgentOrchestrator
+        
         with patch.object(
-            batch_orchestrator.orchestrator.__class__,
+            AgentOrchestrator,
             'run_migration',
             new_callable=AsyncMock,
             return_value=mock_result
@@ -239,8 +248,10 @@ class TestBatchOrchestrator:
                 "agents": {}
             }
         
+        from app.agents.orchestrator import AgentOrchestrator
+        
         with patch.object(
-            batch_orchestrator.orchestrator.__class__,
+            AgentOrchestrator,
             'run_migration',
             new_callable=AsyncMock,
             side_effect=mock_run_migration
@@ -293,8 +304,10 @@ class TestBatchOrchestrator:
                 "agents": {}
             }
         
+        from app.agents.orchestrator import AgentOrchestrator
+        
         with patch.object(
-            batch_orchestrator.orchestrator.__class__,
+            AgentOrchestrator,
             'run_migration',
             new_callable=AsyncMock,
             side_effect=mock_run_migration
@@ -343,6 +356,8 @@ class TestBatchOrchestrator:
             MigrationMode.FULL
         ]
         
+        from app.agents.orchestrator import AgentOrchestrator
+        
         for mode in modes:
             mock_result = {
                 "status": "success",
@@ -351,7 +366,7 @@ class TestBatchOrchestrator:
             }
             
             with patch.object(
-                batch_orchestrator.orchestrator.__class__,
+                AgentOrchestrator,
                 'run_migration',
                 new_callable=AsyncMock,
                 return_value=mock_result
