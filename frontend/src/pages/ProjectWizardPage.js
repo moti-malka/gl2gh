@@ -1,22 +1,207 @@
 /**
  * Project Creation Wizard
  */
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectsAPI } from '../services/api';
+import { projectsAPI, connectionsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import { ConnectionTest } from '../components/ConnectionTest';
+import { Loading } from '../components/Loading';
 import './ProjectWizard.css';
+
+// Inline Scope Picker for wizard (simplified version)
+const WizardScopePicker = ({ gitlabUrl, gitlabToken, selectedScope, onScopeSelected }) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [items, setItems] = useState([]);
+  const [currentPath, setCurrentPath] = useState(null);
+  const [breadcrumbs, setBreadcrumbs] = useState([{ name: 'Root', path: null }]);
+
+  const loadItems = useCallback(async (path = null) => {
+    if (!gitlabUrl || !gitlabToken) {
+      setError('GitLab credentials are required');
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Direct API call since we don't have a project yet
+      const response = await fetch(
+        `http://localhost:8000/api/connections/test/gitlab/browse?${new URLSearchParams({
+          base_url: gitlabUrl,
+          token: gitlabToken,
+          ...(path && { path })
+        })}`
+      );
+      const data = await response.json();
+      
+      if (data.success) {
+        setItems(data.items || []);
+        setCurrentPath(path);
+        
+        if (path === null) {
+          setBreadcrumbs([{ name: 'Root', path: null }]);
+        } else {
+          const parts = path.split('/');
+          const newBreadcrumbs = [{ name: 'Root', path: null }];
+          let accPath = '';
+          for (const part of parts) {
+            accPath = accPath ? `${accPath}/${part}` : part;
+            newBreadcrumbs.push({ name: part, path: accPath });
+          }
+          setBreadcrumbs(newBreadcrumbs);
+        }
+      } else {
+        setError(data.error || 'Failed to load items');
+      }
+    } catch (err) {
+      console.error('Error loading GitLab items:', err);
+      setError('Failed to connect to GitLab');
+    } finally {
+      setLoading(false);
+    }
+  }, [gitlabUrl, gitlabToken]);
+
+  React.useEffect(() => {
+    if (gitlabUrl && gitlabToken) {
+      loadItems(null);
+    }
+  }, [gitlabUrl, gitlabToken, loadItems]);
+
+  const handleItemClick = (item) => {
+    if (item.type === 'group') {
+      loadItems(item.full_path);
+    } else {
+      onScopeSelected({
+        scope_type: item.type,
+        scope_id: item.id,
+        scope_path: item.full_path
+      });
+    }
+  };
+
+  const handleSelectGroup = (item) => {
+    onScopeSelected({
+      scope_type: item.type,
+      scope_id: item.id,
+      scope_path: item.full_path
+    });
+  };
+
+  const getVisibilityIcon = (visibility) => {
+    switch (visibility) {
+      case 'public': return '🌐';
+      case 'internal': return '🏢';
+      case 'private': return '🔒';
+      default: return '';
+    }
+  };
+
+  if (!gitlabUrl || !gitlabToken) {
+    return (
+      <div className="scope-picker-empty">
+        <p>⚠️ Please configure GitLab connection first</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wizard-scope-picker">
+      {/* Breadcrumbs */}
+      <div className="scope-breadcrumbs">
+        {breadcrumbs.map((crumb, index) => (
+          <span key={index}>
+            {index > 0 && <span className="separator">/</span>}
+            <button
+              type="button"
+              className={`breadcrumb-btn ${index === breadcrumbs.length - 1 ? 'active' : ''}`}
+              onClick={() => loadItems(crumb.path)}
+            >
+              {crumb.name}
+            </button>
+          </span>
+        ))}
+      </div>
+
+      {error && (
+        <div className="scope-error">
+          ⚠️ {error}
+          <button type="button" onClick={() => loadItems(currentPath)}>Retry</button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="scope-loading">
+          <Loading size="small" />
+          <span>Loading GitLab structure...</span>
+        </div>
+      ) : (
+        <div className="scope-items">
+          {items.length === 0 ? (
+            <div className="scope-empty">No groups or projects found</div>
+          ) : (
+            items.map(item => (
+              <div
+                key={`${item.type}-${item.id}`}
+                className={`scope-item ${item.type} ${selectedScope?.scope_id === item.id ? 'selected' : ''}`}
+              >
+                <div className="scope-item-main" onClick={() => handleItemClick(item)}>
+                  <span className="scope-icon">{item.type === 'group' ? '📁' : '📦'}</span>
+                  <div className="scope-item-info">
+                    <span className="scope-name">{item.name}</span>
+                    <span className="scope-path">{item.full_path}</span>
+                  </div>
+                  <span className="scope-visibility">
+                    {getVisibilityIcon(item.visibility)}
+                  </span>
+                </div>
+                {item.type === 'group' && (
+                  <div className="scope-item-actions">
+                    <button
+                      type="button"
+                      className="btn-select"
+                      onClick={(e) => { e.stopPropagation(); handleSelectGroup(item); }}
+                    >
+                      Select Group
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-browse"
+                      onClick={(e) => { e.stopPropagation(); loadItems(item.full_path); }}
+                    >
+                      Browse →
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {selectedScope && (
+        <div className="scope-selected">
+          <span>✓ Selected: </span>
+          <strong>{selectedScope.scope_path}</strong>
+          <span className="scope-type-badge">{selectedScope.scope_type}</span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ProjectWizardPage = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [projectData, setProjectData] = useState({
     name: '',
     description: '',
-    gitlab_url: '',
+    gitlab_url: 'https://gitlab.com',
     gitlab_token: '',
     github_token: '',
     github_org: '',
+    scope: null,
   });
   const [loading, setLoading] = useState(false);
   
@@ -26,8 +211,9 @@ export const ProjectWizardPage = () => {
   const steps = [
     { id: 1, title: 'Basic Info', desc: 'Project name and description' },
     { id: 2, title: 'GitLab Source', desc: 'Connect to GitLab' },
-    { id: 3, title: 'GitHub Target', desc: 'Connect to GitHub' },
-    { id: 4, title: 'Review', desc: 'Review and create' },
+    { id: 3, title: 'Migration Scope', desc: 'Select what to migrate' },
+    { id: 4, title: 'GitHub Target', desc: 'Connect to GitHub' },
+    { id: 5, title: 'Review', desc: 'Review and create' },
   ];
 
   const handleChange = (field, value) => {
@@ -63,6 +249,12 @@ export const ProjectWizardPage = () => {
         }
         return true;
       case 3:
+        if (!projectData.scope) {
+          toast.error('Please select a migration scope (group or project)');
+          return false;
+        }
+        return true;
+      case 4:
         if (!projectData.github_token.trim()) {
           toast.error('GitHub token is required');
           return false;
@@ -83,6 +275,9 @@ export const ProjectWizardPage = () => {
           gitlab: {
             url: projectData.gitlab_url,
             token: projectData.gitlab_token,
+            scope_type: projectData.scope?.scope_type,
+            scope_id: projectData.scope?.scope_id,
+            scope_path: projectData.scope?.scope_path,
           },
           github: {
             token: projectData.github_token,
@@ -202,6 +397,22 @@ export const ProjectWizardPage = () => {
 
           {currentStep === 3 && (
             <div className="wizard-step-content">
+              <h2>Select Migration Scope</h2>
+              <p className="step-description">
+                Choose what you want to migrate: a group (all projects within) or a specific project.
+              </p>
+              
+              <WizardScopePicker
+                gitlabUrl={projectData.gitlab_url}
+                gitlabToken={projectData.gitlab_token}
+                selectedScope={projectData.scope}
+                onScopeSelected={(scope) => handleChange('scope', scope)}
+              />
+            </div>
+          )}
+
+          {currentStep === 4 && (
+            <div className="wizard-step-content">
               <h2>GitHub Target Connection</h2>
               <p className="step-description">
                 Configure the connection to your GitHub account.
@@ -243,7 +454,7 @@ export const ProjectWizardPage = () => {
             </div>
           )}
 
-          {currentStep === 4 && (
+          {currentStep === 5 && (
             <div className="wizard-step-content">
               <h2>Review & Create</h2>
               <p className="step-description">
@@ -270,6 +481,24 @@ export const ProjectWizardPage = () => {
                 <div className="review-item">
                   <strong>Token:</strong> ••••••••••••
                 </div>
+              </div>
+
+              <div className="review-section">
+                <h3>Migration Scope</h3>
+                {projectData.scope ? (
+                  <>
+                    <div className="review-item">
+                      <strong>Type:</strong> {projectData.scope.scope_type}
+                    </div>
+                    <div className="review-item">
+                      <strong>Path:</strong> {projectData.scope.scope_path}
+                    </div>
+                  </>
+                ) : (
+                  <div className="review-item warning">
+                    ⚠️ No scope selected
+                  </div>
+                )}
               </div>
 
               <div className="review-section">
@@ -308,7 +537,7 @@ export const ProjectWizardPage = () => {
             Cancel
           </button>
           
-          {currentStep < 4 ? (
+          {currentStep < 5 ? (
             <button
               onClick={handleNext}
               className="btn btn-primary"

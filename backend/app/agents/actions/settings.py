@@ -242,12 +242,7 @@ class CreateWebhookAction(BaseAction):
             hook = repo.create_hook(
                 name="web",
                 config=config,
-            hook = await self.github_client.create_webhook(
-                repo=target_repo,
-                url=url,
                 events=events,
-                secret=secret,
-                content_type=content_type,
                 active=active
             )
             
@@ -256,12 +251,11 @@ class CreateWebhookAction(BaseAction):
                 action_id=self.action_id,
                 action_type=self.action_type,
                 outputs={
-                    "webhook_id": hook["id"],
+                    "webhook_id": hook.id,
                     "webhook_url": url,
                     "events": events,
                     "target_repo": target_repo,
                     "insecure_ssl": insecure_ssl
-                    "target_repo": target_repo
                 },
                 rollback_data={
                     "target_repo": target_repo,

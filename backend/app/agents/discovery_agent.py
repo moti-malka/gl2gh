@@ -195,17 +195,36 @@ class DiscoveryAgent(BaseAgent):
         """
         discovered_projects = []
         
-        # Get projects
+        # Get projects based on scope
         try:
-            if inputs.get("root_group"):
-                # Scan specific group
+            scope_type = inputs.get("scope_type")
+            scope_id = inputs.get("scope_id")
+            scope_path = inputs.get("scope_path")
+            
+            if scope_type == "project" and scope_id:
+                # Single project scope - get just this project
+                self.log_event("INFO", f"Scope: single project {scope_path} (ID: {scope_id})")
+                try:
+                    project = await client.get_project(scope_id)
+                    projects = [project] if project else []
+                    self.log_event("INFO", f"Found project: {project.get('path_with_namespace') if project else 'None'}")
+                except Exception as e:
+                    self.log_event("ERROR", f"Failed to get project {scope_id}: {str(e)}")
+                    projects = []
+            elif scope_type == "group" and scope_path:
+                # Group scope - scan all projects in this group
+                self.log_event("INFO", f"Scope: group {scope_path}")
+                projects = await client.list_group_projects(scope_path)
+                self.log_event("INFO", f"Found {len(projects)} projects in group {scope_path}")
+            elif inputs.get("root_group"):
+                # Legacy: Scan specific group
                 group_id = inputs["root_group"]
                 projects = await client.list_group_projects(group_id)
                 self.log_event("INFO", f"Found {len(projects)} projects in group {group_id}")
             else:
-                # Scan all accessible projects
+                # No scope - scan all accessible projects
                 projects = await client.list_projects()
-                self.log_event("INFO", f"Found {len(projects)} accessible projects")
+                self.log_event("INFO", f"Found {len(projects)} accessible projects (no scope set)")
         except Exception as e:
             self.log_event("ERROR", f"Failed to list projects: {str(e)}")
             return []

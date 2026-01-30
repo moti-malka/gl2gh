@@ -361,6 +361,93 @@ class PlanAgent(BaseAgent):
             """
         )
     
+    def _load_export_data(self, run_dir: Path, context_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Load export data from files in the run directory.
+        This is more reliable than passing large data through the context.
+        """
+        export_data = context_data.copy() if context_data else {}
+        
+        try:
+            # Load issues
+            issues_file = run_dir / "issues" / "issues.json"
+            if issues_file.exists():
+                with open(issues_file, 'r') as f:
+                    export_data["issues"] = json.load(f)
+                    self.log_event("INFO", f"Loaded {len(export_data['issues'])} issues from file")
+            
+            # Load merge requests
+            mrs_file = run_dir / "merge_requests" / "merge_requests.json"
+            if mrs_file.exists():
+                with open(mrs_file, 'r') as f:
+                    export_data["merge_requests"] = json.load(f)
+                    self.log_event("INFO", f"Loaded {len(export_data['merge_requests'])} MRs from file")
+            
+            # Load labels
+            labels_file = run_dir / "settings" / "labels.json"
+            if labels_file.exists():
+                with open(labels_file, 'r') as f:
+                    export_data["labels"] = json.load(f)
+                    self.log_event("INFO", f"Loaded {len(export_data['labels'])} labels from file")
+            
+            # Load milestones
+            milestones_file = run_dir / "settings" / "milestones.json"
+            if milestones_file.exists():
+                with open(milestones_file, 'r') as f:
+                    export_data["milestones"] = json.load(f)
+                    self.log_event("INFO", f"Loaded {len(export_data['milestones'])} milestones from file")
+            
+            # Load project settings
+            settings_file = run_dir / "settings" / "project_settings.json"
+            if settings_file.exists():
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+                    export_data.update(settings)
+                    self.log_event("INFO", "Loaded project settings from file")
+            
+            # Load releases
+            releases_file = run_dir / "releases" / "releases.json"
+            if releases_file.exists():
+                with open(releases_file, 'r') as f:
+                    export_data["releases"] = json.load(f)
+                    self.log_event("INFO", f"Loaded {len(export_data['releases'])} releases from file")
+            
+            # Load CI config
+            ci_file = run_dir / "ci" / "gitlab-ci.yml"
+            if ci_file.exists():
+                export_data["has_ci"] = True
+            
+            # Load members (for user mapping)
+            members_file = run_dir / "settings" / "members.json"
+            if members_file.exists():
+                with open(members_file, 'r') as f:
+                    export_data["members"] = json.load(f)
+            
+            # Load protected branches
+            protected_file = run_dir / "settings" / "protected_branches.json"
+            if protected_file.exists():
+                with open(protected_file, 'r') as f:
+                    export_data["protected_branches"] = json.load(f)
+            
+            # Load webhooks
+            webhooks_file = run_dir / "settings" / "webhooks.json"
+            if webhooks_file.exists():
+                with open(webhooks_file, 'r') as f:
+                    export_data["webhooks"] = json.load(f)
+            
+            # Check for wiki
+            wiki_bundle = run_dir / "wiki" / "wiki.bundle"
+            export_data["has_wiki"] = wiki_bundle.exists()
+            
+            # Check for LFS
+            lfs_dir = run_dir / "repository" / "lfs"
+            export_data["has_lfs"] = lfs_dir.exists() and any(lfs_dir.iterdir()) if lfs_dir.exists() else False
+            
+        except Exception as e:
+            self.log_event("WARN", f"Error loading export data from files: {str(e)}")
+        
+        return export_data
+    
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """Validate plan inputs"""
         # Only output_dir is strictly required, other fields have defaults
@@ -389,9 +476,14 @@ class PlanAgent(BaseAgent):
             gitlab_project = inputs.get("gitlab_project", "namespace/project")
             github_target = inputs.get("github_target", "org/repo")
             
-            # Get transform and export data
+            # Get transform data
             transform_data = inputs.get("transform_data", {})
-            export_data = inputs.get("export_data", {})
+            
+            # Load export data from files (more reliable than passing through context)
+            export_data = self._load_export_data(output_dir.parent, inputs.get("export_data", {}))
+            
+            self.log_event("INFO", f"Generating plan for {gitlab_project} -> {github_target}")
+            self.log_event("INFO", f"Export data: {len(export_data.get('issues', []))} issues, {len(export_data.get('merge_requests', []))} MRs, {len(export_data.get('labels', []))} labels")
             
             self.log_event("INFO", f"Generating plan for {gitlab_project} -> {github_target}")
             

@@ -1,0 +1,340 @@
+/**
+ * GitLab Scope Picker Styles
+ */
+
+.gitlab-scope-picker {
+  background: var(--bg-secondary, #1e1e1e);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 8px;
+  padding: 20px;
+  max-height: 600px;
+  display: flex;
+  flex-direction: column;
+}
+
+.scope-picker-header {
+  margin-bottom: 16px;
+}
+
+.scope-picker-header h3 {
+  margin: 0 0 4px 0;
+  color: var(--text-primary, #fff);
+}
+
+.scope-picker-header p {
+  margin: 0;
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+}
+
+/* Current Scope */
+.current-scope {
+  background: var(--bg-tertiary, #252526);
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scope-label {
+  color: var(--text-secondary, #888);
+  font-size: 0.85rem;
+}
+
+.scope-value {
+  color: var(--accent-color, #0078d4);
+  font-weight: 500;
+}
+
+/* Breadcrumbs */
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary, #252526);
+  border-radius: 6px;
+}
+
+.breadcrumb-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.breadcrumb-btn:hover {
+  background: var(--bg-hover, #3c3c3c);
+  color: var(--text-primary, #fff);
+}
+
+.breadcrumb-btn.active {
+  color: var(--accent-color, #0078d4);
+  font-weight: 500;
+}
+
+.breadcrumb-separator {
+  color: var(--text-muted, #666);
+}
+
+/* Error Banner */
+.error-banner {
+  background: #5a1d1d;
+  color: #ff6b6b;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.error-banner button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: inherit;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.error-banner button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 12px;
+  color: var(--text-secondary, #888);
+}
+
+/* Items List */
+.items-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-secondary, #888);
+}
+
+.empty-state button {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary, #252526);
+  border: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-primary, #fff);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Scope Item */
+.scope-item {
+  background: var(--bg-tertiary, #252526);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.scope-item:hover {
+  border-color: var(--accent-color, #0078d4);
+  background: var(--bg-hover, #2d2d2d);
+}
+
+.scope-item.selected {
+  border-color: var(--accent-color, #0078d4);
+  background: rgba(0, 120, 212, 0.1);
+}
+
+.item-main {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 16px;
+  cursor: pointer;
+  gap: 12px;
+}
+
+.item-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-name {
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  font-size: 0.95rem;
+}
+
+.item-path {
+  color: var(--text-secondary, #888);
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.item-description {
+  color: var(--text-secondary, #888);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-branch {
+  color: var(--success-color, #4caf50);
+  font-size: 0.8rem;
+}
+
+.visibility-badge {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary, #1e1e1e);
+  color: var(--text-secondary, #888);
+  white-space: nowrap;
+}
+
+/* Item Actions (for groups) */
+.item-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px 44px;
+}
+
+.item-actions button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-btn {
+  background: var(--accent-color, #0078d4);
+  border: none;
+  color: white;
+}
+
+.select-btn:hover {
+  background: var(--accent-hover, #0066b8);
+}
+
+.browse-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-secondary, #888);
+}
+
+.browse-btn:hover {
+  background: var(--bg-hover, #3c3c3c);
+  color: var(--text-primary, #fff);
+}
+
+/* Selection Summary */
+.selection-summary {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(0, 120, 212, 0.1);
+  border: 1px solid var(--accent-color, #0078d4);
+  border-radius: 6px;
+}
+
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.selection-label {
+  color: var(--text-secondary, #888);
+}
+
+.selection-value {
+  color: var(--text-primary, #fff);
+}
+
+.selection-type {
+  color: var(--text-secondary, #888);
+  font-size: 0.85rem;
+  margin-left: 8px;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.cancel-btn {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-secondary, #888);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-btn:hover {
+  background: var(--bg-hover, #3c3c3c);
+  color: var(--text-primary, #fff);
+}
+
+.confirm-btn {
+  padding: 8px 20px;
+  background: var(--accent-color, #0078d4);
+  border: none;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.confirm-btn:hover {
+  background: var(--accent-hover, #0066b8);
+}
+
+/* Scrollbar styling */
+.items-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.items-list::-webkit-scrollbar-track {
+  background: var(--bg-tertiary, #252526);
+  border-radius: 4px;
+}
+
+.items-list::-webkit-scrollbar-thumb {
+  background: var(--border-color, #3c3c3c);
+  border-radius: 4px;
+}
+
+.items-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted, #666);
+}

@@ -1,24 +1,44 @@
 """FastAPI dependencies for authentication and authorization"""
 
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from datetime import datetime
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from bson import ObjectId
 
 from app.models import User
 from app.utils.auth import get_current_user as get_user_from_token
+from app.config import settings
 
 
 # HTTP Bearer security scheme
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+
+# Dev user for development mode
+DEV_USER = User(
+    id=ObjectId("000000000000000000000000"),
+    email="dev@gl2gh.local",
+    username="dev",
+    hashed_password="dev-no-password",
+    role="admin",
+    is_active=True,
+    created_at=datetime.utcnow(),
+    updated_at=datetime.utcnow()
+)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> User:
     """
     Dependency to get current authenticated user
     
+    In development mode (DEBUG=True), allows bypass with X-Dev-Bypass header
+    or returns a dev user if no credentials provided.
+    
     Args:
+        request: HTTP request
         credentials: HTTP Bearer token credentials
         
     Returns:
@@ -27,6 +47,22 @@ async def get_current_user(
     Raises:
         HTTPException: If authentication fails
     """
+    # Dev mode bypass
+    if settings.DEBUG:
+        # Check for X-Dev-Bypass header
+        if request.headers.get("X-Dev-Bypass") == "true":
+            return DEV_USER
+        # If no credentials in dev mode, return dev user
+        if not credentials:
+            return DEV_USER
+    
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     token = credentials.credentials
     user = await get_user_from_token(token)
     

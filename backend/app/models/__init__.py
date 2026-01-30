@@ -119,7 +119,9 @@ class MigrationRun(MongoBaseModel):
     status: str = "CREATED"  # CREATED, QUEUED, RUNNING, COMPLETED, FAILED, CANCELED
     stage: Optional[str] = None  # DISCOVER, EXPORT, TRANSFORM, PLAN, APPLY, VERIFY
     current_stage: Optional[str] = None  # Current detailed stage for progress tracking
-    progress: Dict[str, Any] = Field(default_factory=dict)  # Progress tracking details
+    progress: Any = Field(default_factory=dict)  # Progress tracking details (dict or int for percent)
+    progress_percent: int = 0  # Overall progress percentage (0-100)
+    components: Optional[List[str]] = None  # List of components/stages to run
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     stats: RunStats = Field(default_factory=RunStats)

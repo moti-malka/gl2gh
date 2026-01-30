@@ -6,6 +6,7 @@ import { useParams, Link } from 'react-router-dom';
 import { projectsAPI, connectionsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
+import { GitLabScopePicker } from '../components/GitLabScopePicker';
 import './ConnectionsPage.css';
 
 export const ConnectionsPage = () => {
@@ -14,6 +15,8 @@ export const ConnectionsPage = () => {
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showScopePicker, setShowScopePicker] = useState(false);
+  const [currentScope, setCurrentScope] = useState(null);
   const [formData, setFormData] = useState({
     type: 'gitlab',
     url: '',
@@ -32,6 +35,19 @@ export const ConnectionsPage = () => {
       
       setProject(projectResponse.data);
       setConnections(connectionsResponse.data);
+      
+      // Load current scope if GitLab connection exists
+      const hasGitLab = connectionsResponse.data.some(c => c.type === 'gitlab');
+      if (hasGitLab) {
+        try {
+          const scopeResponse = await connectionsAPI.getGitLabScope(id);
+          if (scopeResponse.data.has_scope) {
+            setCurrentScope(scopeResponse.data.scope);
+          }
+        } catch (err) {
+          console.debug('No scope set yet');
+        }
+      }
     } catch (error) {
       console.error('Failed to load connections:', error);
       toast.error('Failed to load connections');
@@ -83,6 +99,21 @@ export const ConnectionsPage = () => {
       toast.error('Failed to delete connection');
     }
   };
+
+  const handleScopeSelected = async (scope) => {
+    try {
+      await connectionsAPI.setGitLabScope(id, scope);
+      setCurrentScope(scope);
+      setShowScopePicker(false);
+      toast.success(`Migration scope set to: ${scope.scope_path}`);
+    } catch (error) {
+      console.error('Failed to set scope:', error);
+      toast.error('Failed to set migration scope');
+    }
+  };
+
+  const hasGitLabConnection = connections.some(c => c.type === 'gitlab');
+  const hasGitHubConnection = connections.some(c => c.type === 'github');
 
   if (loading) {
     return <Loading message="Loading connections..." />;
@@ -210,19 +241,19 @@ export const ConnectionsPage = () => {
                       {connection.type === 'gitlab' ? '🦊 GitLab' : '🐙 GitHub'}
                     </span>
                   </div>
-                  <span className={`status-badge status-${connection.status || 'unknown'}`}>
-                    {connection.status || 'unknown'}
+                  <span className="status-badge status-pending">
+                    Ready
                   </span>
                 </div>
 
                 <div className="connection-details">
                   <div className="detail-row">
                     <span className="detail-label">URL:</span>
-                    <span className="detail-value">{connection.url}</span>
+                    <span className="detail-value">{connection.base_url || connection.url || (connection.type === 'gitlab' ? 'https://gitlab.com' : 'https://github.com')}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Token:</span>
-                    <span className="detail-value">••••••••</span>
+                    <span className="detail-value">••••{connection.token_last4 || '••••'}</span>
                   </div>
                   {connection.created_at && (
                     <div className="detail-row">
@@ -250,6 +281,66 @@ export const ConnectionsPage = () => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Migration Scope Section - Show after GitLab connection is set */}
+        {hasGitLabConnection && (
+          <div className="scope-section">
+            <h2>📋 Migration Scope</h2>
+            <p className="section-description">
+              Select what you want to migrate from GitLab. You can choose a group (to migrate all projects within) or a specific project.
+            </p>
+            
+            {currentScope ? (
+              <div className="current-scope-display">
+                <div className="scope-info">
+                  <span className="scope-type-badge">{currentScope.scope_type}</span>
+                  <span className="scope-path">{currentScope.scope_path}</span>
+                </div>
+                <button 
+                  onClick={() => setShowScopePicker(true)} 
+                  className="btn btn-sm"
+                >
+                  Change Scope
+                </button>
+              </div>
+            ) : (
+              <div className="no-scope-warning">
+                <span>⚠️ No migration scope selected</span>
+                <button 
+                  onClick={() => setShowScopePicker(true)} 
+                  className="btn btn-primary"
+                >
+                  Select Migration Scope
+                </button>
+              </div>
+            )}
+
+            {showScopePicker && (
+              <div className="scope-picker-modal">
+                <div className="modal-header">
+                  <h3>Select Migration Scope</h3>
+                  <button onClick={() => setShowScopePicker(false)} className="close-btn">×</button>
+                </div>
+                <GitLabScopePicker
+                  projectId={id}
+                  currentScope={currentScope}
+                  onScopeSelected={handleScopeSelected}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Next Steps */}
+        {hasGitLabConnection && hasGitHubConnection && currentScope && (
+          <div className="next-steps-section">
+            <h2>🚀 Ready to Migrate</h2>
+            <p>Your connections and migration scope are configured. You can now start the migration.</p>
+            <Link to={`/projects/${id}`} className="btn btn-primary btn-lg">
+              Go to Project Dashboard →
+            </Link>
           </div>
         )}
       </div>

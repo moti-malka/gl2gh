@@ -283,6 +283,161 @@ class GitLabClient:
         response = await self._request('GET', 'user')
         return response.json()
     
+    # ===== Group Methods =====
+    
+    async def list_groups(
+        self,
+        top_level_only: bool = False,
+        owned: bool = False,
+        min_access_level: Optional[int] = None,
+        search: Optional[str] = None,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List accessible groups.
+        
+        Args:
+            top_level_only: Only return top-level groups
+            owned: Only return groups owned by user
+            min_access_level: Minimum access level (10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner)
+            search: Search term
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of group dictionaries
+        """
+        params = {
+            "top_level_only": top_level_only,
+            "owned": owned,
+        }
+        if min_access_level:
+            params["min_access_level"] = min_access_level
+        if search:
+            params["search"] = search
+            
+        groups = []
+        async for group in self.paginated_request("groups", params=params, max_pages=max_pages):
+            groups.append(group)
+        return groups
+    
+    async def get_group(self, group_id: Union[int, str]) -> Dict[str, Any]:
+        """
+        Get a specific group by ID or path.
+        
+        Args:
+            group_id: Group ID or URL-encoded path
+            
+        Returns:
+            Group dictionary
+        """
+        if isinstance(group_id, str):
+            group_id = urllib.parse.quote(group_id, safe='')
+        response = await self._request('GET', f'groups/{group_id}')
+        return response.json()
+    
+    async def list_subgroups(
+        self,
+        group_id: Union[int, str],
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List subgroups of a group.
+        
+        Args:
+            group_id: Parent group ID or path
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of subgroup dictionaries
+        """
+        if isinstance(group_id, str):
+            group_id = urllib.parse.quote(group_id, safe='')
+            
+        subgroups = []
+        async for subgroup in self.paginated_request(f"groups/{group_id}/subgroups", max_pages=max_pages):
+            subgroups.append(subgroup)
+        return subgroups
+    
+    async def get_group_hierarchy(
+        self,
+        group_id: Optional[Union[int, str]] = None,
+        include_projects: bool = True,
+        max_depth: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Get the full hierarchy of groups, subgroups, and optionally projects.
+        
+        Args:
+            group_id: Starting group ID/path (None for all accessible groups)
+            include_projects: Include projects in the response
+            max_depth: Maximum depth to traverse
+            
+        Returns:
+            Hierarchical dictionary with groups, subgroups, and projects
+        """
+        async def _build_hierarchy(gid: Union[int, str], depth: int) -> Dict[str, Any]:
+            if depth > max_depth:
+                return None
+                
+            group = await self.get_group(gid)
+            result = {
+                "id": group["id"],
+                "name": group["name"],
+                "full_path": group["full_path"],
+                "description": group.get("description"),
+                "visibility": group.get("visibility"),
+                "type": "group",
+                "children": []
+            }
+            
+            # Get subgroups
+            try:
+                subgroups = await self.list_subgroups(gid, max_pages=5)
+                for sg in subgroups:
+                    child = await _build_hierarchy(sg["id"], depth + 1)
+                    if child:
+                        result["children"].append(child)
+            except Exception as e:
+                self.logger.warning(f"Could not fetch subgroups for {gid}: {e}")
+            
+            # Get projects
+            if include_projects:
+                try:
+                    projects = await self.list_group_projects(gid, include_subgroups=False, max_pages=5)
+                    for proj in projects:
+                        result["children"].append({
+                            "id": proj["id"],
+                            "name": proj["name"],
+                            "full_path": proj["path_with_namespace"],
+                            "description": proj.get("description"),
+                            "visibility": proj.get("visibility"),
+                            "type": "project",
+                            "default_branch": proj.get("default_branch"),
+                            "last_activity_at": proj.get("last_activity_at"),
+                        })
+                except Exception as e:
+                    self.logger.warning(f"Could not fetch projects for {gid}: {e}")
+            
+            return result
+        
+        if group_id:
+            return await _build_hierarchy(group_id, 0)
+        else:
+            # Get top-level groups the user has access to
+            groups = await self.list_groups(top_level_only=True, max_pages=5)
+            root = {
+                "id": None,
+                "name": "Root",
+                "full_path": "",
+                "type": "root",
+                "children": []
+            }
+            for g in groups:
+                child = await _build_hierarchy(g["id"], 1)
+                if child:
+                    root["children"].append(child)
+            return root
+
     # ===== Project Methods =====
     
     async def list_projects(
@@ -449,6 +604,28 @@ class GitLabClient:
             if max_count and count >= max_count:
                 break
         return pipelines
+    
+    # ===== Labels and Milestones Methods =====
+    
+    async def list_labels(self, project_id: int) -> List[Dict[str, Any]]:
+        """List all project labels"""
+        labels = []
+        async for label in self.paginated_request(f"projects/{project_id}/labels"):
+            labels.append(label)
+        return labels
+    
+    async def list_milestones(self, project_id: int, state: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all project milestones"""
+        params = {}
+        if state:
+            params['state'] = state
+        milestones = []
+        async for milestone in self.paginated_request(
+            f"projects/{project_id}/milestones",
+            params=params
+        ):
+            milestones.append(milestone)
+        return milestones
     
     # ===== Issue Methods =====
     

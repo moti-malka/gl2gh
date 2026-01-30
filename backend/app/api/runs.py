@@ -140,6 +140,11 @@ async def create_run(
         if settings.github:
             github_org = settings.github.get("org")
         
+        # Get scope from gitlab settings
+        scope_type = settings.gitlab.get("scope_type") if settings.gitlab else None
+        scope_id = settings.gitlab.get("scope_id") if settings.gitlab else None
+        scope_path = settings.gitlab.get("scope_path") if settings.gitlab else None
+        
         # Build config with all required fields for the agents
         config = {
             # Run options
@@ -149,6 +154,10 @@ async def create_run(
             # GitLab settings (from connections)
             "gitlab_url": gitlab_url,
             "gitlab_token": gitlab_token,
+            # Scope settings (what to migrate)
+            "scope_type": scope_type,  # 'project' or 'group'
+            "scope_id": scope_id,       # GitLab project/group ID
+            "scope_path": scope_path,   # Full path like 'org/repo' or 'org/group'
             # GitHub settings (from connections)
             "github_token": github_token,
             "github_org": github_org,
@@ -254,6 +263,117 @@ async def get_run(
         stats=run.stats.model_dump(),
         error=run.error
     )
+
+
+@router.get("/runs/{run_id}/stream")
+async def stream_run_events(
+    run_id: str,
+    token: str = Query(..., description="Authentication token")
+):
+    """
+    Stream real-time run updates via Server-Sent Events (SSE)
+    
+    This endpoint provides a fallback for WebSocket connections.
+    Authentication is done via query parameter since SSE doesn't support headers.
+    Polls the database for updates since worker runs in a separate process.
+    """
+    from app.utils.auth import verify_token
+    from app.services import RunService, EventService
+    
+    # Validate token from query parameter
+    try:
+        payload = verify_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"SSE auth failed: {e}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
+    
+    # Verify run exists and user has access
+    run_service = RunService()
+    run = await run_service.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    
+    async def event_generator():
+        """Generate SSE events for this run by polling the database"""
+        event_service = EventService()
+        last_event_count = 0
+        last_status = None
+        last_stage = None
+        
+        try:
+            # Send initial state
+            current_run = await run_service.get_run(run_id)
+            if current_run:
+                last_status = current_run.status
+                last_stage = current_run.stage
+                yield {
+                    "event": "state",
+                    "data": json.dumps({
+                        "status": current_run.status,
+                        "stage": current_run.stage,
+                        "current_stage": current_run.current_stage,
+                        "progress": current_run.progress,
+                        "stats": current_run.stats.model_dump() if current_run.stats else {}
+                    })
+                }
+            
+            # Poll for updates
+            while True:
+                await asyncio.sleep(2)  # Poll every 2 seconds
+                
+                # Get current run state
+                current_run = await run_service.get_run(run_id)
+                if not current_run:
+                    break
+                
+                # Check if status or stage changed
+                if current_run.status != last_status or current_run.stage != last_stage:
+                    last_status = current_run.status
+                    last_stage = current_run.stage
+                    
+                    yield {
+                        "event": "update",
+                        "data": json.dumps({
+                            "status": current_run.status,
+                            "stage": current_run.stage,
+                            "current_stage": current_run.current_stage,
+                            "progress": current_run.progress,
+                            "stats": current_run.stats.model_dump() if current_run.stats else {}
+                        })
+                    }
+                
+                # Get new events
+                events = await event_service.get_events(run_id, skip=last_event_count, limit=50)
+                if events:
+                    for event in events:
+                        yield {
+                            "event": "log",
+                            "data": json.dumps({
+                                "level": event.level,
+                                "message": event.message,
+                                "agent": event.agent,
+                                "timestamp": event.timestamp.isoformat() if event.timestamp else None
+                            })
+                        }
+                    last_event_count += len(events)
+                
+                # Check if run is completed
+                if current_run.status in ["COMPLETED", "FAILED", "CANCELLED", "success"]:
+                    yield {
+                        "event": "complete",
+                        "data": json.dumps({"status": current_run.status})
+                    }
+                    break
+                        
+        except asyncio.CancelledError:
+            logger.info(f"SSE stream cancelled for run {run_id}")
+    
+    return EventSourceResponse(event_generator())
 
 
 @router.post("/runs/{run_id}/cancel")
@@ -481,6 +601,133 @@ async def get_run_artifacts(
     ]
 
 
+@router.get("/runs/{run_id}/summary")
+async def get_run_summary(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """
+    Get a human-readable summary of what the run discovered and planned.
+    This provides actionable information for the user.
+    """
+    import json
+    from pathlib import Path
+    
+    run = await check_run_access(run_id, current_user)
+    
+    summary = {
+        "run_id": run_id,
+        "status": run.status,
+        "mode": run.mode,
+        "discovery": None,
+        "plan": None,
+        "next_steps": [],
+        "artifacts_available": []
+    }
+    
+    # Get project info
+    project_service = ProjectService()
+    project = await project_service.get_project(str(run.project_id))
+    
+    # Artifacts are stored by project_id, not run_id
+    artifact_root = Path(f"/app/artifacts/runs/{run.project_id}")
+    logger.info(f"Looking for artifacts in: {artifact_root}")
+    
+    # Try to read discovery results (inventory.json) - directly in artifact_root
+    inventory_path = artifact_root / "inventory.json"
+    
+    if inventory_path.exists():
+        try:
+            with open(inventory_path) as f:
+                inventory = json.load(f)
+            
+            # Extract summary from inventory
+            projects = inventory.get("projects", [])
+            summary["discovery"] = {
+                "total_projects": len(projects),
+                "projects": [
+                    {
+                        "name": p.get("name"),
+                        "path": p.get("path_with_namespace"),
+                        "visibility": p.get("visibility"),
+                        "components": list(p.get("components", {}).keys()) if isinstance(p.get("components"), dict) else []
+                    }
+                    for p in projects[:10]  # Limit to first 10
+                ],
+                "has_more": len(projects) > 10
+            }
+            summary["artifacts_available"].append("inventory")
+        except Exception as e:
+            logger.warning(f"Could not read inventory: {e}")
+    else:
+        logger.info(f"No inventory found at {inventory_path}")
+    
+    # Try to read plan.json - directly in artifact_root
+    plan_path = artifact_root / "plan.json"
+    if plan_path.exists():
+        try:
+            with open(plan_path) as f:
+                plan = json.load(f)
+            
+            actions = plan.get("actions", [])
+            summary["plan"] = {
+                "total_actions": len(actions),
+                "actions_by_type": {},
+                "preview": actions[:5]  # First 5 actions
+            }
+            
+            # Count by type
+            for action in actions:
+                action_type = action.get("type", "unknown")
+                summary["plan"]["actions_by_type"][action_type] = \
+                    summary["plan"]["actions_by_type"].get(action_type, 0) + 1
+            
+            summary["artifacts_available"].append("plan")
+        except Exception as e:
+            logger.warning(f"Could not read plan: {e}")
+    
+    # Try to read conversion_gaps.json - directly in artifact_root
+    gaps_path = artifact_root / "conversion_gaps.json"
+    if gaps_path.exists():
+        try:
+            with open(gaps_path) as f:
+                gaps = json.load(f)
+            summary["gaps"] = {
+                "total": len(gaps.get("gaps", [])),
+                "by_severity": gaps.get("by_severity", {}),
+                "preview": gaps.get("gaps", [])[:3]
+            }
+            summary["artifacts_available"].append("gaps")
+        except Exception as e:
+            logger.warning(f"Could not read gaps: {e}")
+    
+    # Determine next steps based on mode and status
+    if run.status == "COMPLETED":
+        if run.mode == "DISCOVER_ONLY":
+            summary["next_steps"] = [
+                {"action": "review_discovery", "label": "Review Discovered Projects", "description": "Review the discovered projects and their components"},
+                {"action": "create_plan", "label": "Create Migration Plan", "description": "Start a new run in PLAN_ONLY mode to create migration plan"}
+            ]
+        elif run.mode == "PLAN_ONLY":
+            summary["next_steps"] = [
+                {"action": "review_plan", "label": "Review Migration Plan", "description": "Review the generated migration plan and actions"},
+                {"action": "download_plan", "label": "Download Plan", "description": "Download the plan.json file for review"},
+                {"action": "apply", "label": "Apply Migration", "description": "Execute the migration plan on GitHub", "primary": True}
+            ]
+        elif run.mode in ["APPLY", "FULL"]:
+            summary["next_steps"] = [
+                {"action": "verify", "label": "Verify Migration", "description": "Run verification to check migration results"},
+                {"action": "view_github", "label": "View on GitHub", "description": "Open GitHub to see migrated repositories"}
+            ]
+    elif run.status == "FAILED":
+        summary["next_steps"] = [
+            {"action": "view_errors", "label": "View Errors", "description": "Check the error details below"},
+            {"action": "resume", "label": "Resume from Checkpoint", "description": "Resume the run from where it failed"}
+        ]
+    
+    return summary
+
+
 @router.get("/runs/{run_id}/plan")
 async def get_run_plan(
     run_id: str,
@@ -653,9 +900,10 @@ async def get_discovery_results(
     run = await check_run_access(run_id, current_user)
     
     # Check if discovery has completed
-    # Discovery is complete if stage is past DISCOVER or if DISCOVER_ONLY mode is complete
+    # Discovery is complete if stage is past DISCOVER or if run is completed
     discovery_complete = (
-        run.stage in ["EXPORT", "TRANSFORM", "PLAN", "APPLY", "VERIFY"] or
+        run.stage in ["EXPORT", "TRANSFORM", "PLAN", "APPLY", "VERIFY", "DONE"] or
+        run.status in ["COMPLETED", "success"] or
         (run.status == "COMPLETED" and run.mode == "DISCOVER_ONLY")
     )
     

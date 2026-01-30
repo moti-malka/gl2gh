@@ -66,7 +66,9 @@ class AgentOrchestrator:
         self,
         mode: MigrationMode,
         config: Dict[str, Any],
-        resume_from: Optional[str] = None
+        resume_from: Optional[str] = None,
+        stage_callback: Optional[callable] = None,
+        complete_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
         """
         Run migration workflow based on mode.
@@ -75,6 +77,8 @@ class AgentOrchestrator:
             mode: Migration mode determining which agents to run
             config: Configuration for migration
             resume_from: Agent to resume from (if resuming)
+            stage_callback: Optional async callback to update stage status
+            complete_callback: Optional async callback when stage completes
             
         Returns:
             Dict with results from all executed agents
@@ -97,6 +101,10 @@ class AgentOrchestrator:
             for agent_name in agents_to_run:
                 self.logger.info(f"Executing {agent_name}...")
                 
+                # Update stage via callback
+                if stage_callback:
+                    await stage_callback(agent_name)
+                
                 # Get agent
                 agent = self.agents[agent_name]
                 
@@ -112,6 +120,10 @@ class AgentOrchestrator:
                 
                 # Store result
                 results["agents"][agent_name] = result
+                
+                # Call complete callback
+                if complete_callback:
+                    await complete_callback(agent_name, result)
                 
                 # Update shared context for next agent
                 if result.get("status") == "success":
@@ -200,7 +212,12 @@ class AgentOrchestrator:
             inputs.update({
                 "gitlab_url": config.get("gitlab_url"),
                 "gitlab_token": config.get("gitlab_token"),
-                "root_group": config.get("root_group"),
+                # Scope configuration
+                "scope_type": config.get("scope_type"),  # 'project' or 'group'
+                "scope_id": config.get("scope_id"),       # GitLab project/group ID
+                "scope_path": config.get("scope_path"),   # Full path
+                # Legacy support
+                "root_group": config.get("root_group") or (config.get("scope_path") if config.get("scope_type") == "group" else None),
                 "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/discovery")
             })
         
@@ -238,8 +255,22 @@ class AgentOrchestrator:
             })
         
         elif agent_name == "plan":
+            # Get project info from discovered projects
+            discovered = self.shared_context.get("discovered_projects", [])
+            gitlab_project = "namespace/project"
+            if discovered:
+                gitlab_project = discovered[0].get("path_with_namespace", gitlab_project)
+            
+            # Build github target from org + repo name
+            github_org = config.get("github_org", "org")
+            repo_name = gitlab_project.split("/")[-1] if gitlab_project else "repo"
+            github_target = f"{github_org}/{repo_name}" if github_org else f"org/{repo_name}"
+            
             inputs.update({
                 "transform_data": self.shared_context.get("transform_data"),
+                "export_data": self.shared_context.get("export_data"),
+                "gitlab_project": gitlab_project,
+                "github_target": github_target,
                 "output_dir": config.get("output_dir", f"artifacts/runs/{config.get('run_id')}/plan")
             })
         

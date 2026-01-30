@@ -116,6 +116,18 @@ export const connectionsAPI = {
   
   delete: (projectId, connectionId) =>
     apiClient.delete(`/projects/${projectId}/connections/${connectionId}`),
+  
+  // GitLab browse and scope
+  browseGitLab: (projectId, path = null, includeProjects = true) =>
+    apiClient.get(`/projects/${projectId}/connections/gitlab/browse`, { 
+      params: { path, include_projects: includeProjects }
+    }),
+  
+  setGitLabScope: (projectId, scope) =>
+    apiClient.post(`/projects/${projectId}/connections/gitlab/set-scope`, scope),
+  
+  getGitLabScope: (projectId) =>
+    apiClient.get(`/projects/${projectId}/connections/gitlab/scope`),
 };
 
 // Runs API
@@ -137,6 +149,7 @@ export const runsAPI = {
   
   saveProjectSelection: (runId, selections) =>
     apiClient.post(`/runs/${runId}/selection`, { selections }),
+  
   getCheckpoint: (runId) =>
     apiClient.get(`/runs/${runId}/checkpoint`),
   
@@ -145,8 +158,21 @@ export const runsAPI = {
   
   clearCheckpoint: (runId) =>
     apiClient.delete(`/runs/${runId}/checkpoint`),
+  
   getProgress: (runId) =>
     apiClient.get(`/runs/${runId}/progress`),
+  
+  getSummary: (runId) =>
+    apiClient.get(`/runs/${runId}/summary`),
+  
+  getArtifacts: (runId) =>
+    apiClient.get(`/runs/${runId}/artifacts`),
+  
+  downloadArtifact: (runId, artifactType) =>
+    apiClient.get(`/runs/${runId}/artifacts/${artifactType}`, { responseType: 'blob' }),
+  
+  apply: (runId) =>
+    apiClient.post(`/runs/${runId}/apply`),
 };
 
 // Events API

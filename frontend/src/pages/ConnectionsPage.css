@@ -180,6 +180,131 @@
   color: #742a2a;
 }
 
+/* Migration Scope Section */
+.scope-section {
+  margin-top: 2rem;
+  padding: 2rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.scope-section h2 {
+  margin: 0 0 0.5rem;
+  color: #2d3748;
+  font-size: 1.25rem;
+}
+
+.section-description {
+  color: #718096;
+  margin-bottom: 1.5rem;
+}
+
+.current-scope-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.scope-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scope-type-badge {
+  background: #667eea;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.scope-path {
+  font-family: monospace;
+  font-size: 0.95rem;
+  color: #2d3748;
+}
+
+.no-scope-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  color: #92400e;
+}
+
+/* Scope Picker Modal */
+.scope-picker-modal {
+  margin-top: 1.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: #f7fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #2d3748;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #a0aec0;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #718096;
+}
+
+/* Next Steps Section */
+.next-steps-section {
+  margin-top: 2rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 8px;
+  text-align: center;
+  color: white;
+}
+
+.next-steps-section h2 {
+  margin: 0 0 0.5rem;
+  color: white;
+}
+
+.next-steps-section p {
+  margin: 0 0 1.5rem;
+  opacity: 0.9;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-size: 1rem;
+}
+
 @media (max-width: 768px) {
   .connections-grid {
     grid-template-columns: 1fr;
@@ -196,5 +321,12 @@
 
   .detail-value {
     text-align: left;
+  }
+  
+  .current-scope-display,
+  .no-scope-warning {
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
   }
 }

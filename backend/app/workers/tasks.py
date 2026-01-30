@@ -18,6 +18,19 @@ from app.agents import (
 logger = get_logger(__name__)
 
 
+async def ensure_db_connection():
+    """Ensure MongoDB is connected for worker tasks"""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from app.config import settings
+    import app.db as db_module
+    
+    # Always create a fresh connection for each task to avoid event loop issues
+    db_module._client = AsyncIOMotorClient(settings.MONGO_URL)
+    # Ping to verify connection
+    await db_module._client.admin.command('ping')
+    logger.info("MongoDB connection established for worker task")
+
+
 @celery_app.task(name='app.workers.tasks.test_task')
 def test_task(x: int, y: int):
     """Test task to verify Celery is working"""
@@ -42,37 +55,165 @@ def run_migration(run_id: str, mode: str, config: dict):
     """
     logger.info(f"Starting migration run {run_id} in {mode} mode")
     
+    # Run async code in sync context
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     try:
+        # Ensure MongoDB is connected
+        loop.run_until_complete(ensure_db_connection())
+        
+        # Import services
+        from app.services import RunService, EventService
+        
+        run_service = RunService()
+        event_service = EventService()
+        
+        # Determine which stages will run based on mode
+        mode_stages = {
+            "DISCOVER_ONLY": ["DISCOVER"],
+            "PLAN_ONLY": ["DISCOVER", "EXPORT", "TRANSFORM", "PLAN"],
+            "APPLY": ["DISCOVER", "EXPORT", "TRANSFORM", "PLAN", "APPLY"],
+            "FULL": ["DISCOVER", "EXPORT", "TRANSFORM", "PLAN", "APPLY", "VERIFY"],
+        }
+        components = mode_stages.get(mode, ["DISCOVER", "EXPORT", "TRANSFORM", "PLAN"])
+        total_stages = len(components)
+        completed_stages = 0
+        
+        # Helper to emit event and update progress
+        async def emit_event(level: str, message: str, agent: str = None, event_type: str = None):
+            await event_service.create_event(
+                run_id=run_id,
+                level=level,
+                message=message,
+                agent=agent,
+                scope="run",
+                payload={"type": event_type} if event_type else None
+            )
+        
+        # Initialize run with components
+        await_func = loop.run_until_complete
+        await_func(
+            run_service.db["runs"].update_one(
+                {"_id": __import__('bson').ObjectId(run_id)},
+                {"$set": {"components": components, "progress_percent": 0}}
+            )
+        )
+        
+        # Emit start event
+        await_func(emit_event("INFO", f"Migration started in {mode} mode", event_type="run_started"))
+        
+        # Update run status to RUNNING
+        await_func(
+            run_service.update_run_status(
+                run_id=run_id,
+                status="RUNNING",
+                stage="STARTING"
+            )
+        )
+        
         # Create orchestrator
         orchestrator = AgentOrchestrator()
         
         # Add run_id to config
         config["run_id"] = run_id
         
-        # Run async workflow in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            result = loop.run_until_complete(
-                orchestrator.run_migration(
-                    mode=MigrationMode(mode),
-                    config=config
-                )
+        # Define a callback to update status during workflow
+        async def update_stage(stage: str):
+            nonlocal completed_stages
+            stage_upper = stage.upper()
+            
+            # Emit stage started event
+            await emit_event("INFO", f"{stage_upper} stage started", agent=f"{stage}Agent", event_type="component_started")
+            
+            await run_service.update_run_status(
+                run_id=run_id,
+                status="RUNNING",
+                stage=stage_upper
             )
-        finally:
-            loop.close()
+        
+        # Define a callback when stage completes
+        async def complete_stage(stage: str, result: dict):
+            nonlocal completed_stages
+            stage_upper = stage.upper()
+            completed_stages += 1
+            progress = int((completed_stages / total_stages) * 100)
+            
+            # Emit stage completed event
+            status = result.get("status", "success")
+            if status == "success":
+                await emit_event("INFO", f"{stage_upper} stage completed successfully", agent=f"{stage}Agent", event_type="component_completed")
+            else:
+                await emit_event("ERROR", f"{stage_upper} stage failed: {result.get('error', 'Unknown error')}", agent=f"{stage}Agent", event_type="error")
+            
+            # Update progress
+            await run_service.db["runs"].update_one(
+                {"_id": __import__('bson').ObjectId(run_id)},
+                {"$set": {"progress_percent": progress}}
+            )
+        
+        result = await_func(
+            orchestrator.run_migration(
+                mode=MigrationMode(mode),
+                config=config,
+                stage_callback=update_stage,
+                complete_callback=complete_stage
+            )
+        )
+        
+        # Update final run status
+        final_status = "COMPLETED" if result.get("status") == "success" else "FAILED"
+        
+        # Emit completion event
+        if final_status == "COMPLETED":
+            await_func(emit_event("INFO", "Migration completed successfully", event_type="run_completed"))
+        else:
+            error_msg = result.get("error", "Unknown error")
+            await_func(emit_event("ERROR", f"Migration failed: {error_msg}", event_type="run_failed"))
+        
+        await_func(
+            run_service.update_run_status(
+                run_id=run_id,
+                status=final_status,
+                stage="DONE" if final_status == "COMPLETED" else "FAILED"
+            )
+        )
+        
+        # Set final progress
+        await_func(
+            run_service.db["runs"].update_one(
+                {"_id": __import__('bson').ObjectId(run_id)},
+                {"$set": {"progress_percent": 100 if final_status == "COMPLETED" else completed_stages * (100 // total_stages)}}
+            )
+        )
         
         logger.info(f"Migration run {run_id} completed with status: {result.get('status')}")
         return result
         
     except Exception as e:
         logger.error(f"Migration run {run_id} failed: {str(e)}")
+        
+        # Update run status to FAILED
+        try:
+            from app.services import RunService
+            run_service = RunService()
+            loop.run_until_complete(
+                run_service.update_run_status(
+                    run_id=run_id,
+                    status="FAILED",
+                    error={"message": str(e)}
+                )
+            )
+        except Exception as update_error:
+            logger.error(f"Failed to update run status: {update_error}")
+        
         return {
             "status": "failed",
             "error": str(e),
             "run_id": run_id
         }
+    finally:
+        loop.close()
 
 
 @celery_app.task(name='app.workers.tasks.run_discovery')

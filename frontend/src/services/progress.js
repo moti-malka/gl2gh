@@ -11,6 +11,8 @@ import { runsAPI } from './api';
 
 const WS_URL = process.env.REACT_APP_WS_URL || 'http://localhost:8000';
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+// SSE needs absolute URL since EventSource doesn't work through webpack proxy
+const SSE_BASE_URL = process.env.REACT_APP_SSE_URL || 'http://localhost:8000/api';
 
 // Connection methods in order of preference
 const CONNECTION_METHODS = {
@@ -53,21 +55,8 @@ class ProgressService {
    * Attempt to connect to a run using available methods
    */
   async _connectToRun(runId) {
-    // Try WebSocket first
-    if (await this._tryWebSocket(runId)) {
-      console.log(`[ProgressService] Connected to run ${runId} via WebSocket`);
-      this.currentMethod = CONNECTION_METHODS.WEBSOCKET;
-      return;
-    }
-
-    // Fall back to SSE
-    if (await this._trySSE(runId)) {
-      console.log(`[ProgressService] Connected to run ${runId} via SSE`);
-      this.currentMethod = CONNECTION_METHODS.SSE;
-      return;
-    }
-
-    // Last resort: polling
+    // Use polling directly for reliability
+    // WebSocket and SSE have issues with CORS and event loop in this setup
     this._startPolling(runId);
     console.log(`[ProgressService] Connected to run ${runId} via Polling`);
     this.currentMethod = CONNECTION_METHODS.POLLING;
@@ -136,7 +125,8 @@ class ProgressService {
   async _trySSE(runId) {
     try {
       const token = localStorage.getItem('access_token');
-      const url = `${API_BASE_URL}/v1/runs/${runId}/stream`;
+      // Use absolute URL for SSE since EventSource doesn't work through webpack proxy
+      const url = `${SSE_BASE_URL}/runs/${runId}/stream`;
       
       // Create EventSource with auth in URL (EventSource doesn't support headers)
       const eventSource = new EventSource(`${url}?token=${token}`);
@@ -145,24 +135,25 @@ class ProgressService {
         const timeout = setTimeout(() => {
           eventSource.close();
           reject(new Error('SSE timeout'));
-        }, 5000);
+        }, 10000);
 
-        eventSource.addEventListener('connected', (event) => {
+        // Handle initial state event
+        eventSource.addEventListener('state', (event) => {
           clearTimeout(timeout);
-          console.log('[ProgressService] SSE connected:', event.data);
+          console.log('[ProgressService] SSE connected, received state');
           
-          // Parse and send initial data
           try {
             const data = JSON.parse(event.data);
             this._notifyListeners(runId, data);
           } catch (e) {
-            console.warn('[ProgressService] Failed to parse SSE initial data:', e);
+            console.warn('[ProgressService] Failed to parse SSE state data:', e);
           }
           
           resolve(true);
         });
 
-        eventSource.addEventListener('run_update', (event) => {
+        // Handle updates
+        eventSource.addEventListener('update', (event) => {
           try {
             const data = JSON.parse(event.data);
             this._notifyListeners(runId, data);
@@ -171,14 +162,28 @@ class ProgressService {
           }
         });
 
+        // Handle completion
+        eventSource.addEventListener('complete', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            this._notifyListeners(runId, data);
+          } catch (e) {
+            console.error('[ProgressService] Failed to parse SSE complete:', e);
+          }
+          eventSource.close();
+          this.sseConnections.delete(runId);
+        });
+
         eventSource.addEventListener('keepalive', () => {
           // Just a keepalive, no action needed
+          console.debug('[ProgressService] SSE keepalive received');
         });
 
         eventSource.onerror = (error) => {
           clearTimeout(timeout);
           console.warn('[ProgressService] SSE error:', error);
           eventSource.close();
+          this.sseConnections.delete(runId);
           reject(error);
         };
 

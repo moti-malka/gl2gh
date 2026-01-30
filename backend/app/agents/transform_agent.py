@@ -11,7 +11,7 @@ from app.utils.transformers import (
     UserMapper,
     ContentTransformer,
     GapAnalyzer,
-    WebhookTransformer
+    WebhookTransformer,
     ProtectionRulesTransformer
 )
 
@@ -533,6 +533,21 @@ class TransformAgent(BaseAgent):
             return {
                 "success": False,
                 "webhooks": [],
+                "artifacts": [],
+                "error": result.error
+            }
+        
+        # Save transformed webhooks
+        webhooks_file = output_dir / "webhooks.json"
+        with open(webhooks_file, 'w') as f:
+            json.dump(result.transformed, f, indent=2)
+        
+        return {
+            "success": True,
+            "webhooks": result.transformed,
+            "artifacts": [str(webhooks_file)]
+        }
+    
     async def _transform_protection_rules(
         self,
         protected_branches: List[Dict[str, Any]],
@@ -581,6 +596,42 @@ class TransformAgent(BaseAgent):
             "success": True,
             "webhooks": transformed_webhooks,
             "artifacts": [str(webhooks_file)],
+            "warnings": result.warnings
+        }
+    
+    async def _transform_protection_rules(
+        self,
+        protected_branches: List[Dict[str, Any]],
+        protected_tags: List[Dict[str, Any]],
+        members: List[Dict[str, Any]],
+        ci_jobs: List[str],
+        approval_rules: List[Dict[str, Any]],
+        output_dir: Path
+    ) -> Optional[Dict[str, Any]]:
+        """Transform GitLab branch protection rules to GitHub protection settings"""
+        if not protected_branches and not protected_tags:
+            self.log_event("INFO", "No protected branches or tags found, skipping protection transformation")
+            return None
+        
+        self.log_event("INFO", f"Transforming {len(protected_branches)} protected branches and {len(protected_tags)} protected tags")
+        
+        result = self.protection_transformer.transform({
+            "protected_branches": protected_branches,
+            "protected_tags": protected_tags,
+            "members": members,
+            "ci_jobs": ci_jobs,
+            "approval_rules": approval_rules
+        })
+        
+        if not result.success:
+            self.log_event("ERROR", "Protection rules transformation failed")
+            return {
+                "success": False,
+                "errors": result.errors,
+                "warnings": result.warnings,
+                "artifacts": []
+            }
+        
         # Save protection rules
         protection_dir = output_dir / "protection"
         protection_dir.mkdir(exist_ok=True)

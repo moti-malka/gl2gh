@@ -94,7 +94,8 @@ class ProjectService(BaseService):
         user_id: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
-        status: Optional[str] = None
+        status: Optional[str] = None,
+        include_archived: bool = False
     ) -> List[MigrationProject]:
         """
         List projects with pagination
@@ -104,6 +105,7 @@ class ProjectService(BaseService):
             skip: Number of records to skip
             limit: Maximum number of records to return
             status: Optional status filter (active, archived)
+            include_archived: Whether to include archived (deleted) projects
             
         Returns:
             List of projects
@@ -115,6 +117,9 @@ class ProjectService(BaseService):
                 query["created_by"] = ObjectId(user_id)
             if status:
                 query["status"] = status
+            elif not include_archived:
+                # By default, exclude archived projects
+                query["status"] = {"$ne": "archived"}
             
             # Fetch projects
             cursor = self.db[self.COLLECTION].find(query).skip(skip).limit(limit).sort("created_at", -1)

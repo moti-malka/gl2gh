@@ -3,7 +3,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { projectsAPI, runsAPI } from '../services/api';
+import { projectsAPI, runsAPI, connectionsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
 import './ProjectDetailPage.css';
@@ -12,6 +12,7 @@ export const ProjectDetailPage = () => {
   const { id } = useParams();
   const [project, setProject] = useState(null);
   const [runs, setRuns] = useState([]);
+  const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const toast = useToast();
@@ -19,13 +20,15 @@ export const ProjectDetailPage = () => {
   const loadProjectData = useCallback(async () => {
     setLoading(true);
     try {
-      const [projectResponse, runsResponse] = await Promise.all([
+      const [projectResponse, runsResponse, connectionsResponse] = await Promise.all([
         projectsAPI.get(id),
         runsAPI.list(id, { limit: 5 }),
+        connectionsAPI.list(id),
       ]);
       
       setProject(projectResponse.data);
       setRuns(runsResponse.data);
+      setConnections(connectionsResponse.data || []);
     } catch (error) {
       console.error('Failed to load project:', error);
       toast.error('Failed to load project details');
@@ -42,6 +45,10 @@ export const ProjectDetailPage = () => {
   const handleStartRun = () => {
     navigate(`/projects/${id}/runs/new`);
   };
+
+  // Get connections by type
+  const gitlabConnection = connections.find(c => c.type === 'gitlab');
+  const githubConnection = connections.find(c => c.type === 'github');
 
   if (loading) {
     return <Loading message="Loading project..." />;
@@ -107,20 +114,20 @@ export const ProjectDetailPage = () => {
               <div className="connection-card">
                 <h4>GitLab Source</h4>
                 <p className="connection-url">
-                  {project.settings?.gitlab?.url || 'Not configured'}
+                  {gitlabConnection?.base_url || project.settings?.gitlab?.url || 'Not configured'}
                 </p>
-                <span className={`connection-status ${project.settings?.gitlab?.url ? 'connected' : 'disconnected'}`}>
-                  {project.settings?.gitlab?.url ? '● Connected' : '○ Not Connected'}
+                <span className={`connection-status ${gitlabConnection ? 'connected' : 'disconnected'}`}>
+                  {gitlabConnection ? '● Connected' : '○ Not Connected'}
                 </span>
               </div>
               
               <div className="connection-card">
                 <h4>GitHub Target</h4>
                 <p className="connection-url">
-                  {project.settings?.github?.org || 'Personal account'}
+                  {githubConnection ? 'github.com' : (project.settings?.github?.org || 'Not configured')}
                 </p>
-                <span className={`connection-status ${project.settings?.github?.token_last4 ? 'connected' : 'disconnected'}`}>
-                  {project.settings?.github?.token_last4 ? '● Connected' : '○ Not Connected'}
+                <span className={`connection-status ${githubConnection ? 'connected' : 'disconnected'}`}>
+                  {githubConnection ? '● Connected' : '○ Not Connected'}
                 </span>
               </div>
             </div>

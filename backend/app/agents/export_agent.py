@@ -764,7 +764,9 @@ class ExportAgent(BaseAgent):
             
             skip_until_found = last_processed is not None
             
-            async for issue in self.gitlab_client.list_issues(project_id):
+            # list_issues returns a List, not an async generator
+            issues_list = await self.gitlab_client.list_issues(project_id)
+            for issue in issues_list:
                 issue_iid = issue['iid']
                 
                 # Skip until we find the last processed issue
@@ -854,7 +856,9 @@ class ExportAgent(BaseAgent):
             
             skip_until_found = last_processed is not None
             
-            async for mr in self.gitlab_client.list_merge_requests(project_id):
+            # list_merge_requests returns a List, not an async generator
+            mrs_list = await self.gitlab_client.list_merge_requests(project_id)
+            for mr in mrs_list:
                 mr_iid = mr['iid']
                 
                 # Skip until we find the last processed MR
@@ -1376,6 +1380,18 @@ See `images.json` for the complete list of images and suggested GHCR URLs.
             protected_tags = await self.gitlab_client.list_protected_tags(project_id)
             with open(settings_dir / "protected_tags.json", 'w') as f:
                 json.dump(protected_tags, f, indent=2)
+            
+            # Export labels
+            labels = await self.gitlab_client.list_labels(project_id)
+            with open(settings_dir / "labels.json", 'w') as f:
+                json.dump(labels, f, indent=2)
+            self.log_event("INFO", f"Exported {len(labels)} labels")
+            
+            # Export milestones
+            milestones = await self.gitlab_client.list_milestones(project_id)
+            with open(settings_dir / "milestones.json", 'w') as f:
+                json.dump(milestones, f, indent=2)
+            self.log_event("INFO", f"Exported {len(milestones)} milestones")
             
             # Export members
             members = await self.gitlab_client.list_project_members(project_id)
