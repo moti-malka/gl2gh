@@ -5,12 +5,16 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 import json
+import logging
 
 from app.models import User
-from app.services import RunService, ArtifactService
+from app.services import RunService, ArtifactService, ProjectService
+from app.services.connection_service import ConnectionService
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access, check_run_access
-from app.workers.tasks import run_apply, run_verify
+from app.workers.tasks import run_migration, run_apply, run_verify
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -67,13 +71,61 @@ async def create_run(
     await check_project_access(project_id, current_user)
     
     run_service = RunService()
+    project_service = ProjectService()
+    connection_service = ConnectionService()
     
     try:
-        # Create config snapshot
+        # Fetch project to get settings (including GitLab/GitHub credentials)
+        project = await project_service.get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Fetch GitLab connection and get decrypted token
+        gitlab_url = None
+        gitlab_token = None
+        gitlab_conn = await connection_service.get_connection_by_type(project_id, "gitlab")
+        logger.info(f"GitLab connection for project {project_id}: id={gitlab_conn.id if gitlab_conn else None}, base_url={gitlab_conn.base_url if gitlab_conn else None}")
+        if gitlab_conn:
+            gitlab_url = gitlab_conn.base_url or "https://gitlab.com"
+            gitlab_token = await connection_service.get_decrypted_token(str(gitlab_conn.id), project_id)
+            logger.info(f"GitLab URL: {gitlab_url}, token retrieved: {gitlab_token is not None}, token starts: {gitlab_token[:10] if gitlab_token else None}...")
+        
+        # Fetch GitHub connection and get decrypted token
+        github_token = None
+        github_org = None
+        github_conn = await connection_service.get_connection_by_type(project_id, "github")
+        logger.info(f"GitHub connection for project {project_id}: id={github_conn.id if github_conn else None}")
+        if github_conn:
+            github_token = await connection_service.get_decrypted_token(str(github_conn.id), project_id)
+            logger.info(f"GitHub token retrieved: {github_token is not None}")
+        
+        # Get GitHub org from project settings
+        settings = project.settings
+        if settings.github:
+            github_org = settings.github.get("org")
+        
+        # Build config with all required fields for the agents
         config = {
+            # Run options
             "deep": run.deep,
             "deep_top_n": run.deep_top_n,
-            "filters": run.filters or {}
+            "filters": run.filters or {},
+            # GitLab settings (from connections)
+            "gitlab_url": gitlab_url,
+            "gitlab_token": gitlab_token,
+            # GitHub settings (from connections)
+            "github_token": github_token,
+            "github_org": github_org,
+            # Budget settings
+            "max_api_calls": settings.budgets.get("max_api_calls", 5000) if settings.budgets else 5000,
+            "max_per_project_calls": settings.budgets.get("max_per_project_calls", 200) if settings.budgets else 200,
+            # Behavior settings  
+            "include_archived": settings.behavior.get("include_archived", False) if settings.behavior else False,
+            # Output directory
+            "output_dir": f"/app/artifacts/runs/{project_id}",
         }
         
         created_run = await run_service.create_run(

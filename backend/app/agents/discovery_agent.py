@@ -117,17 +117,10 @@ class DiscoveryAgent(BaseAgent):
             output_dir = Path(inputs["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Initialize GitLab client
-            with GitLabClient(inputs["gitlab_url"], inputs["gitlab_token"]) as client:
-                # Discover projects (run in executor since GitLabClient is synchronous)
-                import asyncio
-                loop = asyncio.get_event_loop()
-                projects_data = await loop.run_in_executor(
-                    None,
-                    self._discover_projects,
-                    client,
-                    inputs
-                )
+            # Initialize GitLab client with async context manager
+            async with GitLabClient(inputs["gitlab_url"], inputs["gitlab_token"]) as client:
+                # Discover projects using async methods
+                projects_data = await self._discover_projects(client, inputs)
                 
                 # Generate enhanced outputs
                 inventory = self._generate_inventory(projects_data, inputs)
@@ -207,11 +200,11 @@ class DiscoveryAgent(BaseAgent):
             if inputs.get("root_group"):
                 # Scan specific group
                 group_id = inputs["root_group"]
-                projects = client.list_group_projects(group_id)
+                projects = await client.list_group_projects(group_id)
                 self.log_event("INFO", f"Found {len(projects)} projects in group {group_id}")
             else:
                 # Scan all accessible projects
-                projects = client.list_projects()
+                projects = await client.list_projects()
                 self.log_event("INFO", f"Found {len(projects)} accessible projects")
         except Exception as e:
             self.log_event("ERROR", f"Failed to list projects: {str(e)}")
@@ -220,7 +213,7 @@ class DiscoveryAgent(BaseAgent):
         # Detect components for each project
         for project in projects:
             try:
-                project_data = self._detect_project_components(client, project)
+                project_data = await self._detect_project_components(client, project)
                 discovered_projects.append(project_data)
                 
                 self.log_event("INFO", f"Scanned project: {project_data['path_with_namespace']}")
@@ -236,7 +229,7 @@ class DiscoveryAgent(BaseAgent):
         
         return discovered_projects
     
-    def _detect_project_components(self, client: GitLabClient, project: Dict[str, Any]) -> Dict[str, Any]:
+    async def _detect_project_components(self, client: GitLabClient, project: Dict[str, Any]) -> Dict[str, Any]:
         """
         Detect all 14 component types for a project.
         
@@ -268,9 +261,9 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 1. Repository (branches, tags, commits)
-            branches = client.list_branches(project_id)
-            tags = client.list_tags(project_id)
-            commits = client.get_commits(project_id, max_pages=1) if branches else []
+            branches = await client.list_branches(project_id)
+            tags = await client.list_tags(project_id)
+            commits = await client.get_commits(project_id, max_pages=1) if branches else []
             
             components["repository"] = {
                 "enabled": True,
@@ -284,8 +277,8 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 2. CI/CD
-            has_ci = client.has_ci_config(project_id)
-            pipelines = client.list_pipelines(project_id, max_pages=1) if has_ci else []
+            has_ci = await client.has_ci_config(project_id)
+            pipelines = await client.list_pipelines(project_id, max_pages=1) if has_ci else []
             
             components["ci_cd"] = {
                 "enabled": has_ci,
@@ -297,7 +290,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 3. Issues
-            issues = client.list_issues(project_id, state="opened")
+            issues = await client.list_issues(project_id, state="opened")
             components["issues"] = {
                 "enabled": True,
                 "opened_count": len(issues),
@@ -308,7 +301,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 4. Merge Requests
-            mrs = client.list_merge_requests(project_id, state="opened")
+            mrs = await client.list_merge_requests(project_id, state="opened")
             components["merge_requests"] = {
                 "enabled": True,
                 "opened_count": len(mrs),
@@ -319,8 +312,8 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 5. Wiki
-            has_wiki = client.has_wiki(project_id)
-            wiki_pages = client.get_wiki_pages(project_id) if has_wiki else []
+            has_wiki = await client.has_wiki(project_id)
+            wiki_pages = await client.get_wiki_pages(project_id) if has_wiki else []
             
             components["wiki"] = {
                 "enabled": has_wiki,
@@ -331,7 +324,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 6. Releases
-            releases = client.list_releases(project_id)
+            releases = await client.list_releases(project_id)
             components["releases"] = {
                 "enabled": True,
                 "count": len(releases),
@@ -342,8 +335,8 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 7. Packages/Registry
-            has_packages = client.has_packages(project_id)
-            packages = client.list_packages(project_id) if has_packages else []
+            has_packages = await client.has_packages(project_id)
+            packages = await client.list_packages(project_id) if has_packages else []
             
             components["packages"] = {
                 "enabled": has_packages,
@@ -355,7 +348,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 8. Webhooks
-            hooks = client.list_hooks(project_id)
+            hooks = await client.list_hooks(project_id)
             components["webhooks"] = {
                 "enabled": True,
                 "count": len(hooks),
@@ -366,7 +359,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 9. Schedules
-            schedules = client.list_pipeline_schedules(project_id)
+            schedules = await client.list_pipeline_schedules(project_id)
             components["schedules"] = {
                 "enabled": True,
                 "count": len(schedules),
@@ -377,7 +370,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 10. LFS
-            has_lfs = client.has_lfs(project_id)
+            has_lfs = await client.has_lfs(project_id)
             components["lfs"] = {
                 "enabled": has_lfs,
                 "detected": has_lfs
@@ -387,7 +380,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 11. Environments
-            environments = client.list_environments(project_id)
+            environments = await client.list_environments(project_id)
             components["environments"] = {
                 "enabled": True,
                 "count": len(environments),
@@ -398,8 +391,8 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 12. Protected branches/tags
-            protected_branches = client.list_protected_branches(project_id)
-            protected_tags = client.list_protected_tags(project_id)
+            protected_branches = await client.list_protected_branches(project_id)
+            protected_tags = await client.list_protected_tags(project_id)
             
             components["protected_resources"] = {
                 "enabled": True,
@@ -412,7 +405,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 13. Deploy keys
-            deploy_keys = client.list_deploy_keys(project_id)
+            deploy_keys = await client.list_deploy_keys(project_id)
             components["deploy_keys"] = {
                 "enabled": True,
                 "count": len(deploy_keys),
@@ -423,7 +416,7 @@ class DiscoveryAgent(BaseAgent):
         
         try:
             # 14. Project variables
-            variables = client.list_variables(project_id)
+            variables = await client.list_variables(project_id)
             components["variables"] = {
                 "enabled": True,
                 "count": len(variables),

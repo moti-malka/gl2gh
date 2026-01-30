@@ -3,7 +3,7 @@
 import asyncio
 import time
 import urllib.parse
-from typing import Any, Dict, List, Optional, AsyncIterator
+from typing import Any, Dict, List, Optional, AsyncIterator, Union
 from pathlib import Path
 import httpx
 from app.utils.logging import get_logger
@@ -91,6 +91,33 @@ class GitLabClient:
     async def close(self):
         """Close HTTP client"""
         await self.client.aclose()
+    
+    def __enter__(self):
+        """Sync context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Sync context manager exit - schedule async close"""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.close())
+            else:
+                loop.run_until_complete(self.close())
+        except RuntimeError:
+            # No event loop, create one
+            asyncio.run(self.close())
+        return False
+    
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.close()
+        return False
     
     async def _request(
         self,
@@ -221,6 +248,64 @@ class GitLabClient:
     
     # ===== Project Methods =====
     
+    async def list_projects(
+        self,
+        membership: bool = True,
+        archived: bool = False,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List accessible projects.
+        
+        Args:
+            membership: Only list projects user is member of
+            archived: Include archived projects
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of project dictionaries
+        """
+        params = {
+            "membership": membership,
+            "archived": archived
+        }
+        projects = []
+        async for project in self.paginated_request("projects", params=params, max_pages=max_pages):
+            projects.append(project)
+        return projects
+    
+    async def list_group_projects(
+        self,
+        group_id: Union[int, str],
+        include_subgroups: bool = True,
+        archived: bool = False,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List all projects in a group.
+        
+        Args:
+            group_id: Group ID or path
+            include_subgroups: Include projects from subgroups
+            archived: Include archived projects
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of project dictionaries
+        """
+        # URL encode if it's a path
+        if isinstance(group_id, str):
+            group_id = urllib.parse.quote(group_id, safe='')
+        
+        params = {
+            "include_subgroups": include_subgroups,
+            "archived": archived
+        }
+        projects = []
+        async for project in self.paginated_request(f"groups/{group_id}/projects", params=params, max_pages=max_pages):
+            projects.append(project)
+        return projects
+    
     async def get_project(self, project_id: int) -> Dict[str, Any]:
         """Get project details"""
         response = await self._request('GET', f"projects/{project_id}")
@@ -317,13 +402,35 @@ class GitLabClient:
     
     # ===== Issue Methods =====
     
-    async def list_issues(self, project_id: int) -> AsyncIterator[Dict[str, Any]]:
-        """List all issues"""
+    async def list_issues(
+        self,
+        project_id: int,
+        state: Optional[str] = None,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List all issues.
+        
+        Args:
+            project_id: Project ID
+            state: Filter by state (opened, closed, all)
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of issues
+        """
+        params = {'scope': 'all'}
+        if state:
+            params['state'] = state
+        
+        issues = []
         async for issue in self.paginated_request(
             f"projects/{project_id}/issues",
-            params={'scope': 'all'}
+            params=params,
+            max_pages=max_pages
         ):
-            yield issue
+            issues.append(issue)
+        return issues
     
     async def get_issue(self, project_id: int, issue_iid: int) -> Dict[str, Any]:
         """Get issue details"""
@@ -341,13 +448,35 @@ class GitLabClient:
     
     # ===== Merge Request Methods =====
     
-    async def list_merge_requests(self, project_id: int) -> AsyncIterator[Dict[str, Any]]:
-        """List all merge requests"""
+    async def list_merge_requests(
+        self,
+        project_id: int,
+        state: Optional[str] = None,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List all merge requests.
+        
+        Args:
+            project_id: Project ID
+            state: Filter by state (opened, closed, merged, all)
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of merge requests
+        """
+        params = {'scope': 'all'}
+        if state:
+            params['state'] = state
+        
+        mrs = []
         async for mr in self.paginated_request(
             f"projects/{project_id}/merge_requests",
-            params={'scope': 'all'}
+            params=params,
+            max_pages=max_pages
         ):
-            yield mr
+            mrs.append(mr)
+        return mrs
     
     async def get_merge_request(self, project_id: int, mr_iid: int) -> Dict[str, Any]:
         """Get merge request details"""
@@ -457,12 +586,80 @@ class GitLabClient:
             hooks.append(hook)
         return hooks
     
+    # Alias for backwards compatibility
+    list_hooks = list_webhooks
+    
     async def list_deploy_keys(self, project_id: int) -> List[Dict[str, Any]]:
         """List deploy keys"""
         keys = []
         async for key in self.paginated_request(f"projects/{project_id}/deploy_keys"):
             keys.append(key)
         return keys
+    
+    # ===== Commits Methods =====
+    
+    async def get_commits(
+        self,
+        project_id: int,
+        ref_name: Optional[str] = None,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get commits for a project.
+        
+        Args:
+            project_id: Project ID
+            ref_name: Branch or tag name
+            max_pages: Maximum pages to fetch
+            
+        Returns:
+            List of commits
+        """
+        params = {}
+        if ref_name:
+            params['ref_name'] = ref_name
+        
+        commits = []
+        async for commit in self.paginated_request(f"projects/{project_id}/repository/commits", params=params, max_pages=max_pages):
+            commits.append(commit)
+        return commits
+    
+    # ===== CI/CD Methods =====
+    
+    async def has_ci_config(self, project_id: int) -> bool:
+        """Check if project has GitLab CI config"""
+        try:
+            content = await self.get_file_content(project_id, '.gitlab-ci.yml')
+            return content is not None
+        except Exception:
+            return False
+    
+    # ===== Wiki Methods =====
+    
+    async def has_wiki(self, project_id: int) -> bool:
+        """Check if project has wiki enabled with content"""
+        try:
+            wiki_pages = await self.get_wiki_pages(project_id)
+            return len(wiki_pages) > 0
+        except Exception:
+            return False
+    
+    async def get_wiki_pages(self, project_id: int) -> List[Dict[str, Any]]:
+        """Get wiki pages for a project"""
+        pages = []
+        async for page in self.paginated_request(f"projects/{project_id}/wikis"):
+            pages.append(page)
+        return pages
+    
+    # ===== Package Methods =====
+    
+    async def has_packages(self, project_id: int) -> bool:
+        """Check if project has packages"""
+        try:
+            packages = await self.list_packages(project_id)
+            return len(packages) > 0
+        except Exception:
+            return False
     
     # ===== LFS Methods =====
     

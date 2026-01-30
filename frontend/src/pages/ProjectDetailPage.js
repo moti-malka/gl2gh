@@ -119,8 +119,8 @@ export const ProjectDetailPage = () => {
                 <p className="connection-url">
                   {project.settings?.github?.org || 'Personal account'}
                 </p>
-                <span className={`connection-status ${project.settings?.github?.token ? 'connected' : 'disconnected'}`}>
-                  {project.settings?.github?.token ? '● Connected' : '○ Not Connected'}
+                <span className={`connection-status ${project.settings?.github?.token_last4 ? 'connected' : 'disconnected'}`}>
+                  {project.settings?.github?.token_last4 ? '● Connected' : '○ Not Connected'}
                 </span>
               </div>
             </div>
