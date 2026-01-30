@@ -39,7 +39,7 @@ class TestOrchestratorPrepareAgentInputs:
         assert "output_dir" in inputs, "output_dir should be in inputs"
     
     def test_prepare_export_inputs_without_discovered_projects(self):
-        """Test that export agent handles empty discovered projects gracefully"""
+        """Test that export agent handles empty discovered projects with warning"""
         # Arrange
         orchestrator = AgentOrchestrator()
         
@@ -60,6 +60,7 @@ class TestOrchestratorPrepareAgentInputs:
         # Assert
         assert "project_id" not in inputs, "project_id should not be set if no projects discovered"
         assert "output_dir" in inputs, "output_dir should still be set"
+        # Note: Export agent will fail validation without project_id, which is expected behavior
     
     def test_prepare_discovery_inputs(self):
         """Test that discovery agent receives correct inputs"""
