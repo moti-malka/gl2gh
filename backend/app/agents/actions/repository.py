@@ -238,7 +238,8 @@ class PushLFSAction(BaseAction):
                     ["git", "clone", auth_url, str(temp_dir)],
                     check=True,
                     capture_output=True,
-                    text=True
+                    text=True,
+                    timeout=300  # 5 minutes for clone
                 )
                 
                 # Install Git LFS in the repository
@@ -247,7 +248,8 @@ class PushLFSAction(BaseAction):
                     cwd=temp_dir,
                     check=True,
                     capture_output=True,
-                    text=True
+                    text=True,
+                    timeout=30  # 30 seconds for install
                 )
                 
                 # Copy LFS objects to the cloned repository
@@ -257,7 +259,6 @@ class PushLFSAction(BaseAction):
                     lfs_storage_dst.mkdir(parents=True, exist_ok=True)
                     
                     # Copy all LFS objects
-                    import shutil
                     for item in lfs_storage_src.iterdir():
                         if item.is_dir():
                             dst_path = lfs_storage_dst / item.name
@@ -292,9 +293,13 @@ class PushLFSAction(BaseAction):
                     }
                 )
             finally:
-                # Cleanup temp directory
+                # Cleanup temp directory (errors are suppressed to avoid token exposure)
                 if temp_dir.exists():
-                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except Exception:
+                        # Suppress cleanup errors to avoid potential token exposure in paths
+                        pass
                     
         except subprocess.TimeoutExpired as e:
             error_msg = f"LFS push timed out: {e.cmd[0] if e.cmd else 'unknown'}"

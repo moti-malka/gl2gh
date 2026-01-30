@@ -433,6 +433,12 @@ class ExportAgent(BaseAgent):
                     dest_lfs_storage = lfs_dir / 'objects'
                     dest_lfs_storage.mkdir(parents=True, exist_ok=True)
                     shutil.copytree(lfs_storage, dest_lfs_storage, dirs_exist_ok=True)
+                else:
+                    # LFS storage doesn't exist even though we have LFS objects - warn and fail
+                    if lfs_objects:
+                        error = "LFS objects found but no .git/lfs/objects directory after fetch"
+                        self.log_event("ERROR", error)
+                        return {"success": False, "error": error}
                 
                 # Calculate total size and create manifest
                 total_size = 0
