@@ -174,6 +174,17 @@ export const RunDashboardPage = () => {
     };
   }, [runId, loadRunData]);
 
+  // Load inventory after discovery completes
+  useEffect(() => {
+    if (run && run.stage && ['EXPORT', 'TRANSFORM', 'PLAN', 'APPLY', 'VERIFY'].includes(run.stage)) {
+      // Discovery has completed, load inventory
+      if (!inventory && !loadingInventory) {
+        loadInventory();
+        loadComponentSelection();
+      }
+    }
+  }, [run, inventory, loadingInventory, loadInventory, loadComponentSelection]);
+
   const handleCancel = async () => {
     if (!window.confirm('Are you sure you want to cancel this run?')) {
       return;
@@ -342,6 +353,51 @@ export const RunDashboardPage = () => {
       {loadingDiscovery && (
         <div className="loading-discovery">
           <Loading message="Loading discovery results..." />
+        </div>
+      )}
+
+      {/* Show Component Inventory after discovery completes */}
+      {inventory && run && run.stage && !['DISCOVER', 'CREATED', 'QUEUED'].includes(run.stage) && (
+        <ComponentInventory inventory={inventory} />
+      )}
+
+      {/* Show Component Selector before plan generation */}
+      {showComponentSelector && inventory && (
+        <div className="component-selector-panel">
+          <ComponentSelector
+            inventory={inventory}
+            initialSelection={componentSelection}
+            onSelectionChange={handleComponentSelectionChange}
+          />
+          <div className="selector-actions">
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => setShowComponentSelector(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleSaveComponentSelection}
+            >
+              Save & Continue to Plan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Button to open component selector if inventory available and not in progress */}
+      {inventory && !showComponentSelector && run && ['COMPLETED', 'FAILED'].includes(run.status) && run.stage === 'DISCOVER' && (
+        <div className="configure-migration-section">
+          <button 
+            className="btn btn-primary btn-large" 
+            onClick={() => setShowComponentSelector(true)}
+          >
+            🎯 Configure Migration Components
+          </button>
+          <p className="configure-hint">
+            Select which components you want to migrate before proceeding
+          </p>
         </div>
       )}
 
