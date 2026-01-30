@@ -12,6 +12,7 @@ from app.clients.gitlab_client import GitLabClient
 import httpx
 
 router = APIRouter()
+test_router = APIRouter()  # Separate router for test endpoints
 
 
 class ConnectionCreate(BaseModel):
@@ -148,7 +149,7 @@ async def delete_connection(
     return None
 
 
-@router.post("/connections/test/gitlab", response_model=ConnectionTestResponse)
+@test_router.post("/connections/test/gitlab", response_model=ConnectionTestResponse)
 async def test_gitlab_connection(
     request: ConnectionTestRequest,
     current_user: User = Depends(require_operator)
@@ -161,21 +162,18 @@ async def test_gitlab_connection(
         # Create GitLab client and test connection
         async with GitLabClient(base_url=base_url, token=request.token, timeout=10) as client:
             # Try to get current user information
-            response = await client._request("GET", "/user")
-            user_data = response.json()
+            user_data = await client.get_current_user()
             
             # Extract username
             username = user_data.get("username")
             
-            # Get token scopes from response headers
-            scopes = None
-            if "X-Oauth-Scopes" in response.headers:
-                scopes = [s.strip() for s in response.headers["X-Oauth-Scopes"].split(",")]
+            # Note: GitLab API doesn't expose token scopes in the response
+            # We can only confirm the connection works
             
             return ConnectionTestResponse(
                 success=True,
                 user=username,
-                scopes=scopes,
+                scopes=None,
                 message="Connection successful"
             )
     except httpx.HTTPStatusError as e:
@@ -201,7 +199,7 @@ async def test_gitlab_connection(
         )
 
 
-@router.post("/connections/test/github", response_model=ConnectionTestResponse)
+@test_router.post("/connections/test/github", response_model=ConnectionTestResponse)
 async def test_github_connection(
     request: ConnectionTestRequest,
     current_user: User = Depends(require_operator)

@@ -35,12 +35,15 @@ export const ConnectionTest = ({ type, url, token }) => {
     }
   };
 
+  // Check if the button should be disabled
+  const isDisabled = !token || status === 'testing' || (type === 'gitlab' && !url);
+
   return (
     <div className="connection-test">
       <button 
         className="btn btn-secondary test-button" 
         onClick={testConnection} 
-        disabled={!token || status === 'testing'}
+        disabled={isDisabled}
       >
         {status === 'testing' ? 'Testing...' : 'Test Connection'}
       </button>

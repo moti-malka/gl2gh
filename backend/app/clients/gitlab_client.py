@@ -306,6 +306,19 @@ class GitLabClient:
             projects.append(project)
         return projects
     
+    async def get_current_user(self) -> Dict[str, Any]:
+        """
+        Get current authenticated user information.
+        
+        Returns:
+            User information dictionary
+            
+        Raises:
+            httpx.HTTPError: On request failure
+        """
+        response = await self._request("GET", "/user")
+        return response.json()
+    
     async def get_project(self, project_id: int) -> Dict[str, Any]:
         """Get project details"""
         response = await self._request('GET', f"projects/{project_id}")
