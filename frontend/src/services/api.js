@@ -147,6 +147,15 @@ export const runsAPI = {
   getDiscoveryResults: (runId) =>
     apiClient.get(`/runs/${runId}/discovery-results`),
   
+  getInventory: (runId) =>
+    apiClient.get(`/runs/${runId}/inventory`),
+  
+  getComponentSelection: (runId) =>
+    apiClient.get(`/runs/${runId}/component-selection`),
+  
+  saveComponentSelection: (runId, selection) =>
+    apiClient.post(`/runs/${runId}/component-selection`, selection),
+  
   saveProjectSelection: (runId, selections) =>
     apiClient.post(`/runs/${runId}/selection`, { selections }),
   

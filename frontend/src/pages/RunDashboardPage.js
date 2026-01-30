@@ -9,6 +9,8 @@ import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
 import { ProjectSelectionPanel } from '../components/ProjectSelectionPanel';
 import { CheckpointPanel } from '../components/CheckpointPanel';
+import { ComponentInventory } from '../components/ComponentInventory';
+import { ComponentSelector } from '../components/ComponentSelector';
 import './RunDashboardPage.css';
 
 export const RunDashboardPage = () => {
@@ -24,6 +26,13 @@ export const RunDashboardPage = () => {
   const [connectionMethod, setConnectionMethod] = useState(null);
   const [summary, setSummary] = useState(null);
   const [artifacts, setArtifacts] = useState([]);
+  
+  // Component inventory and selection
+  const [inventory, setInventory] = useState(null);
+  const [showComponentSelector, setShowComponentSelector] = useState(false);
+  const [componentSelection, setComponentSelection] = useState(null);
+  const [loadingInventory, setLoadingInventory] = useState(false);
+  
   const toast = useToast();
 
   const loadDiscoveryResults = useCallback(async () => {
@@ -88,6 +97,45 @@ export const RunDashboardPage = () => {
     }
   }, [runId, toast]);
 
+  const loadInventory = useCallback(async () => {
+    if (loadingInventory) return;
+    setLoadingInventory(true);
+    try {
+      const response = await runsAPI.getInventory(runId);
+      setInventory(response.data);
+    } catch (error) {
+      console.debug('Inventory not available:', error.response?.status);
+    } finally {
+      setLoadingInventory(false);
+    }
+  }, [runId, loadingInventory]);
+
+  const loadComponentSelection = useCallback(async () => {
+    try {
+      const response = await runsAPI.getComponentSelection(runId);
+      setComponentSelection(response.data);
+    } catch (error) {
+      console.debug('Component selection not available:', error.response?.status);
+    }
+  }, [runId]);
+
+  const handleComponentSelectionChange = (newSelection) => {
+    setComponentSelection(newSelection);
+  };
+
+  const handleSaveComponentSelection = async () => {
+    try {
+      await runsAPI.saveComponentSelection(runId, componentSelection);
+      toast.success('Component selection saved');
+      setShowComponentSelector(false);
+      // Continue to plan generation or next step
+      await loadRunData();
+    } catch (error) {
+      console.error('Failed to save component selection:', error);
+      toast.error('Failed to save component selection');
+    }
+  };
+
   const handleProjectSelectionContinue = async (selections) => {
     try {
       await runsAPI.saveProjectSelection(runId, selections);
@@ -125,6 +173,17 @@ export const RunDashboardPage = () => {
       unsubscribe();
     };
   }, [runId, loadRunData]);
+
+  // Load inventory after discovery completes
+  useEffect(() => {
+    if (run && run.stage && ['EXPORT', 'TRANSFORM', 'PLAN', 'APPLY', 'VERIFY'].includes(run.stage)) {
+      // Discovery has completed, load inventory
+      if (!inventory && !loadingInventory) {
+        loadInventory();
+        loadComponentSelection();
+      }
+    }
+  }, [run, inventory, loadingInventory, loadInventory, loadComponentSelection]);
 
   const handleCancel = async () => {
     if (!window.confirm('Are you sure you want to cancel this run?')) {
@@ -294,6 +353,51 @@ export const RunDashboardPage = () => {
       {loadingDiscovery && (
         <div className="loading-discovery">
           <Loading message="Loading discovery results..." />
+        </div>
+      )}
+
+      {/* Show Component Inventory after discovery completes */}
+      {inventory && run && run.stage && !['DISCOVER', 'CREATED', 'QUEUED'].includes(run.stage) && (
+        <ComponentInventory inventory={inventory} />
+      )}
+
+      {/* Show Component Selector before plan generation */}
+      {showComponentSelector && inventory && (
+        <div className="component-selector-panel">
+          <ComponentSelector
+            inventory={inventory}
+            initialSelection={componentSelection}
+            onSelectionChange={handleComponentSelectionChange}
+          />
+          <div className="selector-actions">
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => setShowComponentSelector(false)}
+            >
+              Cancel
+            </button>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleSaveComponentSelection}
+            >
+              Save & Continue to Plan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Button to open component selector if inventory available and not in progress */}
+      {inventory && !showComponentSelector && run && ['COMPLETED', 'FAILED'].includes(run.status) && run.stage === 'DISCOVER' && (
+        <div className="configure-migration-section">
+          <button 
+            className="btn btn-primary btn-large" 
+            onClick={() => setShowComponentSelector(true)}
+          >
+            🎯 Configure Migration Components
+          </button>
+          <p className="configure-hint">
+            Select which components you want to migrate before proceeding
+          </p>
         </div>
       )}
 

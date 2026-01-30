@@ -923,31 +923,6 @@ async def get_discovery_results(
             detail="No discovery artifacts found for this run"
         )
     
-    # Read the inventory file content
-@router.post("/runs/{run_id}/rollback")
-async def rollback_run(
-    run_id: str,
-    current_user: User = Depends(require_operator)
-):
-    """Rollback all actions from a failed or partially completed migration"""
-    run = await check_run_access(run_id, current_user)
-    
-    # Validate that rollback is appropriate for this run
-    if run.status not in ["FAILED", "COMPLETED"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot rollback run with status {run.status}. Only FAILED or COMPLETED runs can be rolled back."
-        )
-    
-    # Check for executed_actions.json artifact
-    artifact_service = ArtifactService()
-    
-    if not run.artifact_root:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Run has no artifact root configured"
-        )
-    
     # Get the first inventory artifact
     inventory_artifact = discovery_artifacts[0]
     inventory_file_path = Path(run.artifact_root) / inventory_artifact.path
@@ -1026,6 +1001,142 @@ async def rollback_run(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to read inventory file"
+        )
+
+
+@router.get("/runs/{run_id}/inventory")
+async def get_component_inventory(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Get detailed component inventory from discovery"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Check if we have inventory in the run document (new approach)
+    if run.inventory:
+        return run.inventory
+    
+    # Fallback to reading from artifact file (old approach)
+    if not run.artifact_root:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No inventory available for this run"
+        )
+    
+    artifact_service = ArtifactService()
+    discovery_artifacts = await artifact_service.list_artifacts(run_id, artifact_type="inventory")
+    
+    if not discovery_artifacts:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No inventory artifacts found for this run"
+        )
+    
+    inventory_artifact = discovery_artifacts[0]
+    inventory_file_path = Path(run.artifact_root) / inventory_artifact.path
+    
+    if not inventory_file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory file not found"
+        )
+    
+    try:
+        with open(inventory_file_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read inventory file: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to read inventory file"
+        )
+
+
+@router.post("/runs/{run_id}/component-selection")
+async def save_component_selection(
+    run_id: str,
+    selection: Dict[str, Any],
+    current_user: User = Depends(require_operator)
+):
+    """Save user's component selection for migration"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Validate selection structure
+    valid_components = [
+        "repository", "ci_cd", "issues", "merge_requests", 
+        "wiki", "releases", "packages", "settings"
+    ]
+    
+    # Ensure selection has the expected structure
+    if not isinstance(selection, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selection must be a dictionary"
+        )
+    
+    # Store selection in run
+    run_service = RunService()
+    updated_run = await run_service.update_run_selection(run_id, selection)
+    
+    if not updated_run:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save component selection"
+        )
+    
+    return {
+        "status": "success",
+        "message": "Component selection saved",
+        "selection": selection
+    }
+
+
+@router.get("/runs/{run_id}/component-selection")
+async def get_component_selection(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Get saved component selection for migration"""
+    run = await check_run_access(run_id, current_user)
+    
+    if not run.selection:
+        # Return default selection (all components enabled)
+        return {
+            "repository": {"enabled": True, "lfs": False, "submodules": False},
+            "ci_cd": {"enabled": True, "workflows": True, "variables": True, "environments": True, "schedules": True},
+            "issues": {"enabled": True, "open": True, "closed": False, "labels": True, "milestones": True},
+            "merge_requests": {"enabled": False, "open": False, "merged": False},
+            "wiki": {"enabled": True},
+            "releases": {"enabled": True, "notes": True, "assets": False},
+            "packages": {"enabled": False},
+            "settings": {"enabled": False, "protected_branches": False, "webhooks": False, "members": False}
+        }
+    
+    return run.selection
+
+
+@router.post("/runs/{run_id}/rollback")
+async def rollback_run(
+    run_id: str,
+    current_user: User = Depends(require_operator)
+):
+    """Rollback all actions from a failed or partially completed migration"""
+    run = await check_run_access(run_id, current_user)
+    
+    # Validate that rollback is appropriate for this run
+    if run.status not in ["FAILED", "COMPLETED"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot rollback run with status {run.status}. Only FAILED or COMPLETED runs can be rolled back."
+        )
+    
+    # Check for executed_actions.json artifact
+    artifact_service = ArtifactService()
+    
+    if not run.artifact_root:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run has no artifact root configured"
         )
 
 
