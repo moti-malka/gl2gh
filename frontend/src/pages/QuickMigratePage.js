@@ -50,7 +50,7 @@ export const QuickMigratePage = () => {
         return path;
       }
     } catch (e) {
-      // Not a valid URL, might already be a path
+      // Not a valid URL, might already be a path - this is expected and safe to ignore
     }
     return null;
   };
@@ -140,7 +140,8 @@ export const QuickMigratePage = () => {
       navigate(dashboard_url);
       
     } catch (error) {
-      console.error('Failed to start quick migration:', error);
+      // Log only the error message to avoid exposing sensitive data
+      console.error('Failed to start quick migration:', error.message);
       const errorMessage = error.response?.data?.detail || 'Failed to start migration';
       toast.error(errorMessage);
     } finally {

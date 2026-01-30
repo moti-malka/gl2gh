@@ -7,8 +7,7 @@ import re
 import logging
 
 from app.models import User
-from app.services import RunService, ProjectService
-from app.services.connection_service import ConnectionService
+from app.services import RunService
 from app.api.dependencies import require_operator
 from app.workers.tasks import run_migration
 
@@ -54,8 +53,9 @@ class QuickMigrateRequest(BaseModel):
     @validator('github_org', 'github_repo_name')
     def validate_github_names(cls, v):
         """Validate GitHub org and repo names"""
-        if not re.match(r'^[\w\-\.]+$', v):
-            raise ValueError('Invalid GitHub name format. Only alphanumeric, hyphens, dots, and underscores allowed')
+        # GitHub names can only contain alphanumeric, hyphens, and underscores
+        if not re.match(r'^[\w\-]+$', v):
+            raise ValueError('Invalid GitHub name format. Only alphanumeric, hyphens, and underscores allowed')
         return v
 
 
@@ -80,19 +80,25 @@ async def quick_migrate(
     to create a project and configure connections first.
     
     The migration will:
-    1. Skip the discovery stage
-    2. Directly fetch the specified GitLab project info
+    1. Skip the discovery stage (no need to scan all projects)
+    2. Directly use the specified GitLab project info
     3. Proceed with export, transform, and plan stages
+    
+    Note: This creates a run in "PLAN_ONLY" mode for safety - the actual
+    migration execution (apply) can be triggered separately after reviewing
+    the plan.
     """
-    logger.info(f"Quick migrate request for {request.gitlab_project_path} from {request.gitlab_url}")
+    logger.info(f"Quick migrate request received for project in {request.gitlab_url}")
     
     run_service = RunService()
     
     try:
         # Build config for single-project migration
+        # Note: Tokens are stored in config and should be handled securely
+        # throughout the migration pipeline
         config = {
-            # Mark as single project mode
-            "mode": "SINGLE_PROJECT",
+            # Mark as single project mode for orchestrator
+            "single_project": True,
             "single_project_path": request.gitlab_project_path,
             
             # GitLab settings
@@ -122,19 +128,21 @@ async def quick_migrate(
             "output_dir": f"/app/artifacts/quick-runs/{current_user.username}",
         }
         
-        # Create a temporary run without a project association
-        # Use a special project_id placeholder for quick migrations
-        project_id = "quick-migration"
+        # Create a run with a unique project_id for quick migrations
+        # Format: quick-migration-{username}-{timestamp}
+        import time
+        project_id = f"quick-migration-{current_user.username}-{int(time.time())}"
         
+        # Quick migrations use SINGLE_PROJECT mode
         created_run = await run_service.create_run(
             project_id=project_id,
-            mode="PLAN_ONLY",  # Quick migrations default to plan-only
+            mode="SINGLE_PROJECT",
             config=config
         )
         
         # Dispatch Celery task to start the migration process
         try:
-            run_migration.delay(str(created_run.id), "PLAN_ONLY", config)
+            run_migration.delay(str(created_run.id), "SINGLE_PROJECT", config)
         except Exception as e:
             # If task dispatch fails, update run status to indicate the issue
             await run_service.update_run_status(

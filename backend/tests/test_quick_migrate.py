@@ -19,10 +19,13 @@ async def client():
 @pytest.fixture
 async def auth_token(client):
     """Create test user and get auth token"""
-    # Register test user
+    import time
+    username = f"quickmigratetest-{int(time.time())}"
+    
+    # Register test user with unique username
     register_data = {
-        "username": "quickmigratetest",
-        "email": "quickmigrate@example.com",
+        "username": username,
+        "email": f"{username}@example.com",
         "password": "testpass123",
         "full_name": "Quick Migrate Test",
         "role": "operator"
@@ -32,7 +35,7 @@ async def auth_token(client):
     
     # Login to get token
     login_data = {
-        "username": "quickmigratetest",
+        "username": username,
         "password": "testpass123"
     }
     response = await client.post("/api/auth/login", json=login_data)
@@ -176,7 +179,8 @@ async def test_quick_migrate_default_options(client, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_quick_migrate_url_normalization(client, auth_token):
+@patch('app.api.migrate.run_migration')
+async def test_quick_migrate_url_normalization(mock_run_migration, client, auth_token):
     """Test that GitLab URL is normalized (trailing slash removed)"""
     headers = {"Authorization": f"Bearer {auth_token}"}
     
@@ -189,12 +193,15 @@ async def test_quick_migrate_url_normalization(client, auth_token):
         "github_token": "ghp_test"
     }
     
-    with patch('app.api.migrate.run_migration') as mock_run_migration:
-        mock_task = MagicMock()
-        mock_task.id = "test-task-id"
-        mock_run_migration.delay.return_value = mock_task
-        
-        response = await client.post("/api/migrate/quick", json=request_data, headers=headers)
-        
-        assert response.status_code == 201
-        # The URL should be normalized internally
+    mock_task = MagicMock()
+    mock_task.id = "test-task-id"
+    mock_run_migration.delay.return_value = mock_task
+    
+    response = await client.post("/api/migrate/quick", json=request_data, headers=headers)
+    
+    assert response.status_code == 201
+    
+    # Verify that the URL was normalized in the config passed to the task
+    call_args = mock_run_migration.delay.call_args
+    config = call_args[0][2]  # Third argument is config
+    assert config["gitlab_url"] == "https://gitlab.com"  # Trailing slash removed

@@ -135,6 +135,11 @@
   cursor: pointer;
 }
 
+.checkbox-label input[type="checkbox"]:focus {
+  outline: 2px solid #007bff;
+  outline-offset: 2px;
+}
+
 .checkbox-label span {
   font-weight: 500;
   color: #333;
