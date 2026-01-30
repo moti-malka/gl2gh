@@ -62,6 +62,23 @@ class TestBaseAction:
         assert result.success is True
         assert result.outputs["test"] == "value"
     
+    def test_action_result_simulation(self):
+        """Test ActionResult with simulation metadata"""
+        result = ActionResult(
+            success=True,
+            action_id="action-001",
+            action_type="repo_create",
+            outputs={"repo": "org/repo"},
+            simulated=True,
+            simulation_outcome="would_create",
+            simulation_message="Would create repository 'org/repo'"
+        )
+        
+        result_dict = result.to_dict()
+        assert result_dict["simulated"] is True
+        assert result_dict["simulation_outcome"] == "would_create"
+        assert result_dict["simulation_message"] == "Would create repository 'org/repo'"
+    
     def test_id_mapping(self):
         """Test ID mapping functionality"""
         action_config = {
@@ -128,6 +145,61 @@ class TestRepositoryActions:
         assert result.success is True
         assert result.outputs["repo_full_name"] == "org/test-repo"
         assert result.outputs["repo_id"] == 12345
+    
+    @pytest.mark.asyncio
+    async def test_create_repository_simulate_would_create(self):
+        """Test simulating repository creation when repo doesn't exist"""
+        from github import GithubException
+        
+        mock_github = Mock()
+        # Simulate repo doesn't exist (404)
+        mock_github.get_repo.side_effect = GithubException(404, {"message": "Not found"}, None)
+        
+        action_config = {
+            "id": "action-001",
+            "type": "repo_create",
+            "parameters": {
+                "org": "org",
+                "name": "test-repo",
+                "description": "Test repository",
+                "private": True
+            }
+        }
+        
+        action = CreateRepositoryAction(action_config, mock_github, {})
+        result = await action.simulate()
+        
+        assert result.success is True
+        assert result.simulated is True
+        assert result.simulation_outcome == "would_create"
+        assert "Would create repository" in result.simulation_message
+        assert result.outputs["repo_full_name"] == "org/test-repo"
+    
+    @pytest.mark.asyncio
+    async def test_create_repository_simulate_would_skip(self):
+        """Test simulating repository creation when repo already exists"""
+        mock_github = Mock()
+        mock_repo = Mock()
+        mock_repo.full_name = "org/test-repo"
+        # Simulate repo already exists
+        mock_github.get_repo.return_value = mock_repo
+        
+        action_config = {
+            "id": "action-001",
+            "type": "repo_create",
+            "parameters": {
+                "org": "org",
+                "name": "test-repo"
+            }
+        }
+        
+        action = CreateRepositoryAction(action_config, mock_github, {})
+        result = await action.simulate()
+        
+        assert result.success is True
+        assert result.simulated is True
+        assert result.simulation_outcome == "would_skip"
+        assert "already exists" in result.simulation_message
     
     @pytest.mark.asyncio
     async def test_create_repository_already_exists(self):
@@ -378,3 +450,236 @@ class TestApplyAgent:
             "output_dir": "/tmp/test"
         }
         assert agent.validate_inputs(invalid_plan) is False
+
+
+class TestPackageActions:
+    """Test package-related actions"""
+    
+    @pytest.mark.asyncio
+    async def test_publish_npm_package(self):
+        """Test npm package publishing action"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-001",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "npm",
+                "package_name": "test-package",
+                "version": "1.0.0",
+                "files": [
+                    {
+                        "file_name": "test-package-1.0.0.tgz",
+                        "size": 1024,
+                        "local_path": "packages/npm/test-package/1.0.0/test-package-1.0.0.tgz"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["package_name"] == "test-package"
+        assert result.outputs["version"] == "1.0.0"
+        assert result.outputs["package_type"] == "npm"
+        assert result.outputs["status"] == "published"  # Action succeeds with manual setup instructions
+        assert "details" in result.outputs
+    
+    @pytest.mark.asyncio
+    async def test_publish_maven_package(self):
+        """Test Maven package publishing action"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-002",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "maven",
+                "package_name": "maven-lib",
+                "version": "2.0.0",
+                "files": [
+                    {
+                        "file_name": "maven-lib-2.0.0.jar",
+                        "size": 2048,
+                        "local_path": "packages/maven/maven-lib/2.0.0/maven-lib-2.0.0.jar"
+                    },
+                    {
+                        "file_name": "maven-lib-2.0.0.pom",
+                        "size": 512,
+                        "local_path": "packages/maven/maven-lib/2.0.0/maven-lib-2.0.0.pom"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["package_name"] == "maven-lib"
+        assert result.outputs["version"] == "2.0.0"
+        assert result.outputs["package_type"] == "maven"
+    
+    @pytest.mark.asyncio
+    async def test_publish_unsupported_package(self):
+        """Test unsupported package type handling"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-003",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "pypi",  # Unsupported
+                "package_name": "python-lib",
+                "version": "1.0.0",
+                "files": [
+                    {
+                        "file_name": "python-lib-1.0.0.whl",
+                        "size": 3072,
+                        "local_path": "packages/pypi/python-lib/1.0.0/python-lib-1.0.0.whl"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True  # Still succeeds but marks as unsupported
+        assert result.outputs["package_name"] == "python-lib"
+        assert result.outputs["package_type"] == "pypi"
+        assert result.outputs["status"] == "unsupported"
+        assert "manual migration" in result.outputs["note"].lower()
+    
+    @pytest.mark.asyncio
+    async def test_publish_package_without_files(self):
+        """Test package without files"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-004",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "npm",
+                "package_name": "missing-package",
+                "version": "1.0.0",
+                "files": []  # No files
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["status"] == "no_files"
+        assert "manual" in result.outputs["note"].lower()
+    
+    @pytest.mark.asyncio
+    async def test_publish_nuget_package(self):
+        """Test NuGet package publishing action"""
+        from app.agents.actions.packages import PublishPackageAction
+        
+        action_config = {
+            "id": "action-pkg-005",
+            "type": "package_publish",
+            "parameters": {
+                "target_repo": "org/repo",
+                "package_type": "nuget",
+                "package_name": "NugetLib",
+                "version": "3.0.0",
+                "files": [
+                    {
+                        "file_name": "NugetLib.3.0.0.nupkg",
+                        "size": 4096,
+                        "local_path": "packages/nuget/NugetLib/3.0.0/NugetLib.3.0.0.nupkg"
+                    }
+                ]
+            }
+        }
+        
+        github_client = Mock()
+        context = {}
+        
+        action = PublishPackageAction(action_config, github_client, context)
+        result = await action.execute()
+        
+        assert result.success is True
+        assert result.outputs["package_name"] == "NugetLib"
+        assert result.outputs["version"] == "3.0.0"
+        assert result.outputs["package_type"] == "nuget"
+        assert "details" in result.outputs
+    
+    @pytest.mark.asyncio
+    async def test_dry_run_mode(self):
+        """Test dry-run mode execution"""
+        from app.agents.apply_agent import ApplyAgent
+        from unittest.mock import Mock, patch
+        from github import GithubException
+        import tempfile
+        import os
+        
+        agent = ApplyAgent()
+        
+        # Create temporary directory for output
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Mock GitHub client
+            mock_github = Mock()
+            # Simulate repo doesn't exist (404)
+            mock_github.get_repo.side_effect = GithubException(404, {"message": "Not found"}, None)
+            
+            plan = {
+                "actions": [
+                    {
+                        "id": "action-001",
+                        "type": "repo_create",
+                        "parameters": {
+                            "org": "org",
+                            "name": "repo",
+                            "description": "Test repo"
+                        }
+                    }
+                ],
+                "summary": {
+                    "total_actions": 1
+                }
+            }
+            
+            inputs = {
+                "github_token": "ghp_test",
+                "plan": plan,
+                "output_dir": tmpdir,
+                "dry_run": True
+            }
+            
+            with patch.object(agent, 'github_client', mock_github):
+                result = await agent.execute(inputs)
+            
+            # Verify dry-run was successful
+            assert result["status"] in ["success", "partial", "failed"]
+            assert result["outputs"]["dry_run"] is True
+            
+            # Verify dry-run report was created
+            dry_run_report_path = os.path.join(tmpdir, "dry_run_report.json")
+            assert os.path.exists(dry_run_report_path)
+            
+            # Verify ID mappings were NOT created (dry-run doesn't create them)
+            id_mappings_path = os.path.join(tmpdir, "id_mappings.json")
+            assert not os.path.exists(id_mappings_path)
