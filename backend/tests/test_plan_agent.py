@@ -500,6 +500,82 @@ def test_phase_constants():
     assert Phase.GOVERNANCE == "governance"
 
 
+@pytest.mark.asyncio
+async def test_webhook_action_generation(plan_agent, tmp_path):
+    """Test that webhooks are properly planned with transformed event mappings"""
+    transform_data_with_webhooks = {
+        "workflows": [],
+        "environments": [],
+        "branch_protections": [],
+        "webhooks": [
+            {
+                "id": 1,
+                "url": "https://jenkins.example.com/webhook",
+                "events": ["push", "pull_request", "create"],
+                "active": True,
+                "content_type": "json",
+                "insecure_ssl": False,
+                "secret": None,
+                "gitlab_id": 123,
+                "gitlab_url": "https://jenkins.example.com/webhook",
+                "gitlab_events": ["push_events", "merge_requests_events", "tag_push_events"],
+                "unmapped_events": []
+            },
+            {
+                "id": 2,
+                "url": "https://deploy.example.com/hook",
+                "events": ["deployment", "deployment_status", "release"],
+                "active": False,
+                "content_type": "json",
+                "insecure_ssl": True,
+                "secret": None,
+                "gitlab_id": 456,
+                "gitlab_url": "https://deploy.example.com/hook",
+                "gitlab_events": ["deployment_events", "releases_events"],
+                "unmapped_events": []
+            }
+        ]
+    }
+    
+    result = await plan_agent.execute({
+        "run_id": "test-webhook-001",
+        "project_id": "webhook-test",
+        "gitlab_project": "test/project",
+        "github_target": "org/repo",
+        "output_dir": str(tmp_path),
+        "export_data": {},
+        "transform_data": transform_data_with_webhooks
+    })
+    
+    assert result["status"] == "success"
+    plan = result["outputs"]["plan"]
+    
+    # Find webhook actions
+    webhook_actions = [a for a in plan["actions"] if a["type"] == ActionType.WEBHOOK_CREATE]
+    assert len(webhook_actions) == 2, f"Expected 2 webhook actions, found {len(webhook_actions)}"
+    
+    # Check first webhook action
+    webhook1 = webhook_actions[0]
+    assert webhook1["parameters"]["url"] == "https://jenkins.example.com/webhook"
+    assert set(webhook1["parameters"]["events"]) == {"push", "pull_request", "create"}
+    assert webhook1["parameters"]["active"] is True
+    assert webhook1["parameters"]["insecure_ssl"] is False
+    assert webhook1["parameters"]["secret"] == "${USER_INPUT_REQUIRED}"
+    
+    # Check second webhook action
+    webhook2 = webhook_actions[1]
+    assert webhook2["parameters"]["url"] == "https://deploy.example.com/hook"
+    assert set(webhook2["parameters"]["events"]) == {"deployment", "deployment_status", "release"}
+    assert webhook2["parameters"]["active"] is False
+    assert webhook2["parameters"]["insecure_ssl"] is True
+    
+    # Verify webhook actions are in INTEGRATIONS phase
+    assert all(a["phase"] == Phase.INTEGRATIONS for a in webhook_actions)
+    
+    # Verify user inputs required for webhook secrets
+    user_inputs = plan.get("user_inputs_required", [])
+    webhook_secret_inputs = [i for i in user_inputs if i["type"] == "webhook_secret"]
+    assert len(webhook_secret_inputs) == 2, "Expected 2 webhook secret inputs"
 def test_plan_generator_release_assets():
     """Test release asset upload actions are created"""
     from app.agents.plan_agent import PlanGenerator, ActionType, Phase

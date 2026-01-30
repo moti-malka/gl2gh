@@ -11,6 +11,7 @@ from app.utils.transformers import (
     UserMapper,
     ContentTransformer,
     GapAnalyzer,
+    WebhookTransformer
     ProtectionRulesTransformer
 )
 
@@ -60,6 +61,7 @@ class TransformAgent(BaseAgent):
         self.user_mapper = UserMapper()
         self.content_transformer = ContentTransformer()
         self.gap_analyzer = GapAnalyzer()
+        self.webhook_transformer = WebhookTransformer()
         self.protection_transformer = ProtectionRulesTransformer()
     
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
@@ -173,6 +175,18 @@ class TransformAgent(BaseAgent):
             if milestones_result and milestones_result.get("artifacts"):
                 artifacts.extend(milestones_result["artifacts"])
             
+            # 6. Transform webhooks
+            webhooks_result = await self._transform_webhooks(
+                export_data.get("webhooks", []),
+                output_dir
+            )
+            if webhooks_result and webhooks_result.get("artifacts"):
+                artifacts.extend(webhooks_result["artifacts"])
+            if webhooks_result and webhooks_result.get("warnings"):
+                all_warnings.extend(webhooks_result["warnings"])
+            if webhooks_result and not webhooks_result.get("success", True):
+                if webhooks_result.get("errors"):
+                    all_errors.extend(webhooks_result["errors"])
             # 6. Transform branch protection rules
             protection_result = await self._transform_protection_rules(
                 export_data.get("protected_branches", []),
@@ -212,6 +226,7 @@ class TransformAgent(BaseAgent):
                     "transform_complete": True,
                     "artifacts_generated": len(artifacts),
                     "workflows_count": len(workflows_result.get("workflows", [])) if workflows_result else 0,
+                    "webhooks": webhooks_result.get("webhooks", []) if webhooks_result else [],
                     "users_mapped": user_mappings_result.get("stats", {}).get("mapped", 0) if user_mappings_result else 0,
                     "issues_transformed": len(issues_result.get("issues", [])) if issues_result else 0,
                     "mrs_transformed": len(mrs_result.get("merge_requests", [])) if mrs_result else 0,
@@ -493,6 +508,31 @@ class TransformAgent(BaseAgent):
             "artifacts": [str(milestones_file)]
         }
     
+    async def _transform_webhooks(
+        self,
+        webhooks: List[Dict[str, Any]],
+        output_dir: Path
+    ) -> Optional[Dict[str, Any]]:
+        """Transform GitLab webhooks to GitHub format"""
+        if not webhooks:
+            self.log_event("INFO", "No webhooks to transform")
+            return {
+                "success": True,
+                "webhooks": [],
+                "artifacts": []
+            }
+        
+        self.log_event("INFO", f"Transforming {len(webhooks)} webhooks")
+        
+        result = self.webhook_transformer.transform({
+            "webhooks": webhooks
+        })
+        
+        if not result.success:
+            self.log_event("ERROR", "Webhook transformation failed")
+            return {
+                "success": False,
+                "webhooks": [],
     async def _transform_protection_rules(
         self,
         protected_branches: List[Dict[str, Any]],
@@ -529,6 +569,18 @@ class TransformAgent(BaseAgent):
                 "artifacts": []
             }
         
+        # Save transformed webhooks
+        webhooks_file = output_dir / "webhooks.json"
+        transformed_webhooks = result.data.get("webhooks", [])
+        with open(webhooks_file, "w") as f:
+            json.dump(transformed_webhooks, f, indent=2)
+        
+        self.log_event("INFO", f"Transformed {len(transformed_webhooks)} webhooks: {webhooks_file}")
+        
+        return {
+            "success": True,
+            "webhooks": transformed_webhooks,
+            "artifacts": [str(webhooks_file)],
         # Save protection rules
         protection_dir = output_dir / "protection"
         protection_dir.mkdir(exist_ok=True)
