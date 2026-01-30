@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { runsAPI, eventsAPI } from '../services/api';
-import { wsService } from '../services/websocket';
+import { progressService } from '../services/progress';
 import { useToast } from '../components/Toast';
 import { Loading } from '../components/Loading';
 import './RunDashboardPage.css';
@@ -14,6 +14,7 @@ export const RunDashboardPage = () => {
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [connectionMethod, setConnectionMethod] = useState(null);
   const toast = useToast();
 
   const loadRunData = useCallback(async () => {
@@ -37,19 +38,21 @@ export const RunDashboardPage = () => {
   useEffect(() => {
     loadRunData();
     
-    // Subscribe to real-time updates
-    const unsubscribe = wsService.subscribeToRun(runId, (data) => {
+    // Subscribe to real-time updates with automatic fallback
+    const unsubscribe = progressService.subscribeToRun(runId, (data) => {
       setRun(prev => ({ ...prev, ...data }));
       
       // Add new event if included
       if (data.event) {
         setEvents(prev => [data.event, ...prev]);
       }
+      
+      // Update connection method indicator
+      setConnectionMethod(progressService.getConnectionMethod());
     });
 
     return () => {
       unsubscribe();
-      wsService.unsubscribeFromRun(runId);
     };
   }, [runId, loadRunData]);
 
@@ -112,11 +115,20 @@ export const RunDashboardPage = () => {
           </div>
           <h1>Migration Run Dashboard</h1>
         </div>
-        {isRunning && (
-          <button onClick={handleCancel} className="btn btn-danger">
-            Cancel Run
-          </button>
-        )}
+        <div className="header-actions">
+          {connectionMethod && (
+            <span className={`connection-indicator connection-${connectionMethod}`} title={`Connected via ${connectionMethod.toUpperCase()}`}>
+              {connectionMethod === 'websocket' && '🔗 WebSocket'}
+              {connectionMethod === 'sse' && '📡 SSE'}
+              {connectionMethod === 'polling' && '🔄 Polling'}
+            </span>
+          )}
+          {isRunning && (
+            <button onClick={handleCancel} className="btn btn-danger">
+              Cancel Run
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="run-overview">

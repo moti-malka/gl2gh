@@ -8,8 +8,11 @@ from app.models import User
 from app.services import ConnectionService
 from app.api.dependencies import require_operator
 from app.api.utils import check_project_access
+from app.clients.gitlab_client import GitLabClient
+import httpx
 
 router = APIRouter()
+test_router = APIRouter()  # Separate router for test endpoints
 
 
 class ConnectionCreate(BaseModel):
@@ -24,6 +27,18 @@ class ConnectionResponse(BaseModel):
     base_url: Optional[str]
     token_last4: str
     created_at: str
+
+
+class ConnectionTestRequest(BaseModel):
+    base_url: str
+    token: str
+
+
+class ConnectionTestResponse(BaseModel):
+    success: bool
+    user: Optional[str] = None
+    scopes: Optional[List[str]] = None
+    message: Optional[str] = None
 
 
 @router.post("/{project_id}/connections/gitlab", response_model=ConnectionResponse, status_code=status.HTTP_201_CREATED)
@@ -132,3 +147,112 @@ async def delete_connection(
         )
     
     return None
+
+
+@test_router.post("/connections/test/gitlab", response_model=ConnectionTestResponse)
+async def test_gitlab_connection(
+    request: ConnectionTestRequest,
+    current_user: User = Depends(require_operator)
+):
+    """Test GitLab connection without saving it"""
+    try:
+        # Use default GitLab URL if not provided
+        base_url = request.base_url or "https://gitlab.com"
+        
+        # Create GitLab client and test connection
+        async with GitLabClient(base_url=base_url, token=request.token, timeout=10) as client:
+            # Try to get current user information
+            user_data = await client.get_current_user()
+            
+            # Extract username
+            username = user_data.get("username")
+            
+            # Note: GitLab API doesn't expose token scopes in the response
+            # We can only confirm the connection works
+            
+            return ConnectionTestResponse(
+                success=True,
+                user=username,
+                scopes=None,
+                message="Connection successful"
+            )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return ConnectionTestResponse(
+                success=False,
+                message="Invalid token or insufficient permissions"
+            )
+        else:
+            return ConnectionTestResponse(
+                success=False,
+                message=f"GitLab API error: {e.response.status_code}"
+            )
+    except httpx.RequestError as e:
+        return ConnectionTestResponse(
+            success=False,
+            message=f"Connection error: Unable to reach GitLab server"
+        )
+    except Exception as e:
+        return ConnectionTestResponse(
+            success=False,
+            message=f"Unexpected error: {str(e)}"
+        )
+
+
+@test_router.post("/connections/test/github", response_model=ConnectionTestResponse)
+async def test_github_connection(
+    request: ConnectionTestRequest,
+    current_user: User = Depends(require_operator)
+):
+    """Test GitHub connection without saving it"""
+    try:
+        # Use default GitHub API URL if not provided
+        base_url = request.base_url or "https://api.github.com"
+        
+        # Create HTTP client and test connection
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{base_url}/user",
+                headers={
+                    "Authorization": f"token {request.token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            response.raise_for_status()
+            user_data = response.json()
+            
+            # Extract username (login)
+            username = user_data.get("login")
+            
+            # Get token scopes from response headers
+            scopes = None
+            if "X-OAuth-Scopes" in response.headers:
+                scopes = [s.strip() for s in response.headers["X-OAuth-Scopes"].split(",") if s.strip()]
+            
+            return ConnectionTestResponse(
+                success=True,
+                user=username,
+                scopes=scopes,
+                message="Connection successful"
+            )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return ConnectionTestResponse(
+                success=False,
+                message="Invalid token or insufficient permissions"
+            )
+        else:
+            return ConnectionTestResponse(
+                success=False,
+                message=f"GitHub API error: {e.response.status_code}"
+            )
+    except httpx.RequestError as e:
+        return ConnectionTestResponse(
+            success=False,
+            message=f"Connection error: Unable to reach GitHub server"
+        )
+    except Exception as e:
+        return ConnectionTestResponse(
+            success=False,
+            message=f"Unexpected error: {str(e)}"
+        )

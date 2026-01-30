@@ -2,7 +2,7 @@
 WebSocket utilities for broadcasting real-time updates
 
 This module provides helper functions for broadcasting run updates
-to connected WebSocket clients using the Socket.IO server.
+to connected WebSocket clients using the Socket.IO server and SSE connections.
 """
 
 from typing import Dict, Any
@@ -11,7 +11,7 @@ import asyncio
 
 async def emit_run_update(run_id: str, update_data: Dict[str, Any]):
     """
-    Emit a run update to all subscribed clients
+    Emit a run update to all subscribed clients (both WebSocket and SSE)
     
     This is a convenience function that can be called from services
     like RunService or EventService to broadcast updates.
@@ -37,12 +37,22 @@ async def emit_run_update(run_id: str, update_data: Dict[str, Any]):
         ```
     """
     try:
+        # Broadcast to WebSocket subscribers
         from app.main import broadcast_run_update
         await broadcast_run_update(run_id, update_data)
     except Exception as e:
         from app.utils.logging import get_logger
         logger = get_logger(__name__)
-        logger.warning(f"Failed to broadcast run update for {run_id}: {e}")
+        logger.warning(f"Failed to broadcast WebSocket update for {run_id}: {e}")
+    
+    try:
+        # Broadcast to SSE subscribers
+        from app.utils.sse_manager import sse_manager
+        await sse_manager.broadcast(run_id, update_data)
+    except Exception as e:
+        from app.utils.logging import get_logger
+        logger = get_logger(__name__)
+        logger.warning(f"Failed to broadcast SSE update for {run_id}: {e}")
 
 
 def emit_run_update_sync(run_id: str, update_data: Dict[str, Any]):

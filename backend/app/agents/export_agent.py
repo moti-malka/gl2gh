@@ -5,15 +5,29 @@ import subprocess
 import shutil
 import urllib.parse
 import asyncio
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Set
 from pathlib import Path
 from datetime import datetime
 from app.agents.base_agent import BaseAgent, AgentResult
 from app.agents.export_checkpoint import ExportCheckpoint
 from app.clients.gitlab_client import GitLabClient
+from app.clients.registry_client import RegistryClient
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# Attachment URL patterns for GitLab
+ATTACHMENT_PATTERNS = [
+    r'!\[.*?\]\((/uploads/[^)]+)\)',           # Images: ![alt](/uploads/...)
+    r'\[.*?\]\((/uploads/[^)]+)\)',            # Files: [name](/uploads/...)
+    r'(/uploads/[a-fA-F0-9]+/[^\s)]+)',        # Direct upload links (case-insensitive hex)
+]
+
+# Maximum file size for GitHub (100 MB limit, warn at 50 MB)
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+WARN_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 class ExportAgent(BaseAgent):
@@ -66,6 +80,7 @@ class ExportAgent(BaseAgent):
             "wiki": {"status": "pending"},
             "releases": {"status": "pending", "count": 0},
             "packages": {"status": "pending", "count": 0},
+            "container_registry": {"status": "pending", "count": 0},
             "settings": {"status": "pending"}
         }
     
@@ -134,6 +149,7 @@ class ExportAgent(BaseAgent):
                 ("wiki", self._export_wiki),
                 ("releases", self._export_releases),
                 ("packages", self._export_packages),
+                ("container_registry", self._export_container_registry),
                 ("settings", self._export_settings)
             ]
             
@@ -253,6 +269,101 @@ class ExportAgent(BaseAgent):
         error_msg = error_msg.replace("oauth2:", "***AUTH***:")
         return error_msg
     
+    def _extract_attachments(self, content: str) -> Set[str]:
+        """
+        Extract attachment URLs from content.
+        
+        Args:
+            content: Markdown content to scan
+            
+        Returns:
+            Set of attachment paths found
+        """
+        if not content:
+            return set()
+        
+        attachments = set()
+        for pattern in ATTACHMENT_PATTERNS:
+            matches = re.findall(pattern, content)
+            attachments.update(matches)
+        
+        return attachments
+    
+    async def _download_attachment(
+        self,
+        project_path: str,
+        attachment_path: str,
+        output_dir: Path
+    ) -> Optional[Path]:
+        """
+        Download an attachment from GitLab.
+        
+        Args:
+            project_path: GitLab project path (e.g., "group/project")
+            attachment_path: Attachment path (e.g., "/uploads/abc123/file.png")
+            output_dir: Base output directory for attachments
+            
+        Returns:
+            Local path to downloaded file, or None if failed
+        """
+        try:
+            # Validate attachment path to prevent path traversal
+            if ".." in attachment_path or attachment_path.startswith("/.."):
+                self.log_event("WARNING", f"Suspicious attachment path detected: {attachment_path}")
+                return None
+            
+            # Construct full URL
+            # GitLab attachment URLs are: {base_url}/{project_path}{attachment_path}
+            url = f"{self.gitlab_client.base_url}/{project_path}{attachment_path}"
+            
+            # Create filename from path (keep hash for uniqueness)
+            # /uploads/abc123def/screenshot.png -> abc123def_screenshot.png
+            path_parts = attachment_path.strip('/').split('/')
+            if len(path_parts) >= 3:  # uploads/hash/filename
+                hash_part = path_parts[1]
+                filename = path_parts[-1]
+                
+                # Sanitize filename to prevent issues with special characters
+                import re
+                # Allow only alphanumeric, underscore, hyphen, and single period for extension
+                safe_filename_part = re.sub(r'[^\w\-.]', '_', filename)
+                # Prevent multiple dots (except for extension)
+                parts = safe_filename_part.rsplit('.', 1)
+                if len(parts) == 2:
+                    name_part = parts[0].replace('.', '_')
+                    ext_part = parts[1]
+                    safe_filename_part = f"{name_part}.{ext_part}"
+                
+                safe_filename = f"{hash_part}_{safe_filename_part}"
+            else:
+                # Fallback: use sanitized full path
+                safe_filename = re.sub(r'[^\w\-.]', '_', attachment_path.replace('/', '_').strip('_'))
+            
+            output_path = output_dir / safe_filename
+            
+            # Download the file
+            success = await self.gitlab_client.download_file(url, output_path)
+            
+            if success:
+                # Check file size after download
+                file_size = output_path.stat().st_size
+                if file_size > MAX_FILE_SIZE:
+                    self.log_event("WARNING", f"Attachment {attachment_path} exceeds GitHub limit ({file_size / 1024 / 1024:.1f} MB > 100 MB)")
+                    output_path.unlink()  # Delete oversized file
+                    return None
+                elif file_size > WARN_FILE_SIZE:
+                    self.log_event("WARNING", f"Large attachment {attachment_path}: {file_size / 1024 / 1024:.1f} MB (GitHub limit is 100 MB)")
+                
+                self.log_event("DEBUG", f"Downloaded attachment: {attachment_path} -> {safe_filename}")
+                return output_path
+            else:
+                self.log_event("WARNING", f"Failed to download attachment: {attachment_path}")
+                return None
+                
+        except Exception as e:
+            self.log_event("WARNING", f"Error downloading attachment {attachment_path}: {e}")
+            return None
+    
     def _create_directory_structure(self, output_dir: Path):
         """Create export directory structure"""
         subdirs = [
@@ -263,10 +374,12 @@ class ExportAgent(BaseAgent):
             "issues",
             "issues/attachments",
             "merge_requests",
+            "merge_requests/attachments",
             "wiki",
             "releases",
             "releases/assets",
             "packages",
+            "container_registry",
             "settings"
         ]
         
@@ -438,7 +551,10 @@ class ExportAgent(BaseAgent):
         """Export all issues with comments and attachments"""
         try:
             issues_dir = output_dir / "issues"
+            attachments_dir = issues_dir / "attachments"
             all_issues = []
+            attachment_metadata = {}  # Maps old paths to new paths
+            project_path = project.get('path_with_namespace', str(project_id))
             
             # Check if resuming
             last_processed = None
@@ -464,6 +580,28 @@ class ExportAgent(BaseAgent):
                 notes = await self.gitlab_client.list_issue_notes(project_id, issue_iid)
                 full_issue['notes'] = notes
                 
+                # Extract and download attachments from description
+                attachments_found = set()
+                if full_issue.get('description'):
+                    attachments_found.update(self._extract_attachments(full_issue['description']))
+                
+                # Extract attachments from notes/comments
+                for note in notes:
+                    if note.get('body'):
+                        attachments_found.update(self._extract_attachments(note['body']))
+                
+                # Download attachments
+                for attachment_path in attachments_found:
+                    if attachment_path not in attachment_metadata:
+                        local_path = await self._download_attachment(
+                            project_path,
+                            attachment_path,
+                            attachments_dir
+                        )
+                        if local_path:
+                            # Store relative path for later use
+                            attachment_metadata[attachment_path] = str(local_path.relative_to(output_dir))
+                
                 all_issues.append(full_issue)
                 
                 # Update checkpoint progress every 10 issues
@@ -479,6 +617,12 @@ class ExportAgent(BaseAgent):
             # Save all issues
             with open(issues_dir / "issues.json", 'w') as f:
                 json.dump(all_issues, f, indent=2)
+            
+            # Save attachment metadata mapping
+            if attachment_metadata:
+                with open(issues_dir / "attachment_metadata.json", 'w') as f:
+                    json.dump(attachment_metadata, f, indent=2)
+                self.log_event("INFO", f"Downloaded {len(attachment_metadata)} attachments for issues")
             
             return {
                 "success": True,
@@ -497,7 +641,10 @@ class ExportAgent(BaseAgent):
         """Export all merge requests with discussions"""
         try:
             mrs_dir = output_dir / "merge_requests"
+            attachments_dir = mrs_dir / "attachments"
             all_mrs = []
+            attachment_metadata = {}  # Maps old paths to new paths
+            project_path = project.get('path_with_namespace', str(project_id))
             
             # Check if resuming
             last_processed = None
@@ -527,6 +674,29 @@ class ExportAgent(BaseAgent):
                 approvals = await self.gitlab_client.list_merge_request_approvals(project_id, mr_iid)
                 full_mr['approvals'] = approvals
                 
+                # Extract and download attachments from description
+                attachments_found = set()
+                if full_mr.get('description'):
+                    attachments_found.update(self._extract_attachments(full_mr['description']))
+                
+                # Extract attachments from discussions
+                for discussion in discussions:
+                    for note in discussion.get('notes', []):
+                        if note.get('body'):
+                            attachments_found.update(self._extract_attachments(note['body']))
+                
+                # Download attachments
+                for attachment_path in attachments_found:
+                    if attachment_path not in attachment_metadata:
+                        local_path = await self._download_attachment(
+                            project_path,
+                            attachment_path,
+                            attachments_dir
+                        )
+                        if local_path:
+                            # Store relative path for later use
+                            attachment_metadata[attachment_path] = str(local_path.relative_to(output_dir))
+                
                 all_mrs.append(full_mr)
                 
                 # Update checkpoint progress every 10 MRs
@@ -542,6 +712,12 @@ class ExportAgent(BaseAgent):
             # Save all MRs
             with open(mrs_dir / "merge_requests.json", 'w') as f:
                 json.dump(all_mrs, f, indent=2)
+            
+            # Save attachment metadata mapping
+            if attachment_metadata:
+                with open(mrs_dir / "attachment_metadata.json", 'w') as f:
+                    json.dump(attachment_metadata, f, indent=2)
+                self.log_event("INFO", f"Downloaded {len(attachment_metadata)} attachments for merge requests")
             
             return {
                 "success": True,
@@ -632,13 +808,57 @@ class ExportAgent(BaseAgent):
             
             releases = await self.gitlab_client.list_releases(project_id)
             
+            # Download release assets
+            total_assets = 0
+            failed_downloads = []
+            
+            for release in releases:
+                tag_name = release.get("tag_name", "unknown")
+                release_dir = releases_dir / tag_name
+                release_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Download each asset
+                assets = release.get("assets", {})
+                links = assets.get("links", []) if isinstance(assets, dict) else []
+                
+                for asset in links:
+                    asset_url = asset.get("url")
+                    asset_name = asset.get("name")
+                    
+                    if not asset_url or not asset_name:
+                        continue
+                    
+                    asset_path = release_dir / asset_name
+                    logger.info(f"Downloading release asset: {tag_name}/{asset_name}")
+                    
+                    success = await self.gitlab_client.download_file(
+                        asset_url,
+                        asset_path
+                    )
+                    
+                    if success:
+                        # Store local path for later upload
+                        asset["local_path"] = str(asset_path)
+                        total_assets += 1
+                    else:
+                        failed_downloads.append(f"{tag_name}/{asset_name}")
+                        logger.warning(f"Failed to download asset: {tag_name}/{asset_name}")
+            
+            # Save releases metadata with local paths
             with open(releases_dir / "releases.json", 'w') as f:
                 json.dump(releases, f, indent=2)
             
-            return {
+            result = {
                 "success": True,
-                "count": len(releases)
+                "count": len(releases),
+                "assets_downloaded": total_assets
             }
+            
+            if failed_downloads:
+                result["failed_downloads"] = failed_downloads
+                result["warning"] = f"Failed to download {len(failed_downloads)} assets"
+            
+            return result
             
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -666,6 +886,164 @@ class ExportAgent(BaseAgent):
         except Exception as e:
             # Packages might not be available in all GitLab editions
             return {"success": True, "count": 0}
+    
+    async def _export_container_registry(
+        self,
+        project_id: int,
+        project: Dict[str, Any],
+        output_dir: Path
+    ) -> Dict[str, Any]:
+        """Export container registry images metadata"""
+        try:
+            registry_dir = output_dir / "container_registry"
+            project_path = project.get('path_with_namespace', str(project_id))
+            
+            # Check if container registry is enabled
+            if not project.get('container_registry_enabled', False):
+                self.log_event("INFO", "Container registry not enabled for this project")
+                with open(registry_dir / "registry_disabled.txt", 'w') as f:
+                    f.write("Container registry is not enabled for this project.\n")
+                return {"success": True, "count": 0}
+            
+            # Initialize registry client
+            registry_client = RegistryClient(self.gitlab_client)
+            
+            # Discover all images and tags
+            self.log_event("INFO", "Discovering container registry images...")
+            images = await registry_client.discover_images(project_id, project_path)
+            
+            if not images:
+                self.log_event("INFO", "No container images found in registry")
+                with open(registry_dir / "no_images.txt", 'w') as f:
+                    f.write("No container images found in the registry.\n")
+                return {"success": True, "count": 0}
+            
+            # Export image metadata
+            metadata_path = registry_dir / "images.json"
+            export_result = registry_client.export_image_metadata(images, metadata_path)
+            
+            # Generate migration script
+            script_path = registry_dir / "migrate_images.sh"
+            registry_client.generate_migration_script(images, script_path)
+            
+            # Create README with instructions
+            readme_path = registry_dir / "README.md"
+            with open(readme_path, 'w') as f:
+                f.write(self._generate_registry_readme(images))
+            
+            total_tags = sum(len(img['tags']) for img in images)
+            self.log_event(
+                "INFO",
+                f"Exported {len(images)} container repositories with {total_tags} tags"
+            )
+            
+            return {
+                "success": True,
+                "count": len(images),
+                "tags": total_tags,
+                "artifacts": [
+                    str(metadata_path.relative_to(output_dir.parent)),
+                    str(script_path.relative_to(output_dir.parent)),
+                    str(readme_path.relative_to(output_dir.parent))
+                ]
+            }
+            
+        except Exception as e:
+            self.log_event("ERROR", f"Failed to export container registry: {e}")
+            # Don't fail the entire export if registry export fails
+            return {"success": False, "error": str(e), "count": 0}
+    
+    def _generate_registry_readme(self, images: List[Dict[str, Any]]) -> str:
+        """Generate README for container registry migration"""
+        total_tags = sum(len(img['tags']) for img in images)
+        
+        readme = f"""# Container Registry Migration
+
+## Summary
+- **Repositories:** {len(images)}
+- **Total Tags:** {total_tags}
+
+## Migration Options
+
+### Option 1: Use the Migration Script (Recommended)
+The `migrate_images.sh` script automates the image migration process.
+
+**Prerequisites:**
+- Docker installed and running
+- GitLab access token with registry read permissions
+- GitHub token with GHCR write permissions
+
+**Steps:**
+1. Set environment variables:
+   ```bash
+   export GITLAB_TOKEN="your_gitlab_token"
+   export GITHUB_TOKEN="your_github_token"
+   export GITHUB_USER="your_github_username"
+   ```
+
+2. Run the migration script:
+   ```bash
+   ./migrate_images.sh
+   ```
+
+### Option 2: Manual Migration
+For each image, run:
+```bash
+# Login to registries
+echo "$GITLAB_TOKEN" | docker login registry.gitlab.com -u oauth2 --password-stdin
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u $GITHUB_USER --password-stdin
+
+# Pull from GitLab
+docker pull registry.gitlab.com/namespace/project/image:tag
+
+# Tag for GitHub
+docker tag registry.gitlab.com/namespace/project/image:tag ghcr.io/owner/repo/image:tag
+
+# Push to GitHub
+docker push ghcr.io/owner/repo/image:tag
+```
+
+### Option 3: Rebuild from Source
+Re-run your CI/CD pipelines with updated registry URLs pointing to GHCR.
+
+## Discovered Images
+
+"""
+        for i, img in enumerate(images, 1):
+            readme += f"\n### {i}. {img['repository_path']}\n"
+            readme += f"- **GitLab URL:** `{img['gitlab_registry_url']}`\n"
+            readme += f"- **Suggested GitHub URL:** `{img['suggested_github_url']}`\n"
+            readme += f"- **Tags:** {len(img['tags'])}\n\n"
+            
+            if img['tags']:
+                readme += "**Tag Details:**\n"
+                for tag in img['tags'][:10]:  # Show first 10 tags
+                    size_mb = tag['total_size'] / (1024 * 1024) if tag['total_size'] else 0
+                    readme += f"- `{tag['name']}` - {size_mb:.2f} MB\n"
+                
+                if len(img['tags']) > 10:
+                    readme += f"- ... and {len(img['tags']) - 10} more tags\n"
+            readme += "\n"
+        
+        readme += """
+## CI/CD Updates Required
+
+Update your CI/CD workflows to use the new GHCR URLs:
+
+### GitLab CI (Before)
+```yaml
+docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+```
+
+### GitHub Actions (After)
+```yaml
+docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+```
+
+See `images.json` for the complete list of images and suggested GHCR URLs.
+"""
+        
+        return readme
     
     async def _export_settings(
         self,
