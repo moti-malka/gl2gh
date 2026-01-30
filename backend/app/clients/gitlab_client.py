@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, AsyncIterator, Union
 from pathlib import Path
 import httpx
 from app.utils.logging import get_logger
+from app.utils.errors import create_gitlab_error, MigrationError
 
 logger = get_logger(__name__)
 
@@ -183,6 +184,13 @@ class GitLabClient:
                     )
                     await asyncio.sleep(wait_time)
                     continue
+                
+                # Create user-friendly error
+                migration_error = create_gitlab_error(e)
+                self.logger.error(
+                    f"GitLab API error: {migration_error.message}",
+                    extra={"error_code": migration_error.code, "technical": migration_error.technical}
+                )
                 raise
                 
             except httpx.RequestError as e:
@@ -192,9 +200,23 @@ class GitLabClient:
                     self.logger.warning(f"Request error: {e}, retry {retry_count}/{max_retries}")
                     await asyncio.sleep(wait_time)
                     continue
+                
+                # Create user-friendly error
+                migration_error = create_gitlab_error(e)
+                self.logger.error(
+                    f"GitLab connection error: {migration_error.message}",
+                    extra={"error_code": migration_error.code, "technical": migration_error.technical}
+                )
                 raise
         
-        raise Exception(f"Max retries exceeded for {method} {endpoint}")
+        # Max retries exceeded
+        error = Exception(f"Max retries exceeded for {method} {endpoint}")
+        migration_error = create_gitlab_error(error)
+        self.logger.error(
+            f"Max retries exceeded: {migration_error.message}",
+            extra={"error_code": migration_error.code}
+        )
+        raise error
     
     async def paginated_request(
         self,
@@ -245,6 +267,21 @@ class GitLabClient:
             except Exception as e:
                 self.logger.error(f"Error fetching page {page} of {endpoint}: {e}")
                 break
+    
+    # ===== User Methods =====
+    
+    async def get_current_user(self) -> Dict[str, Any]:
+        """
+        Get current authenticated user information.
+        
+        Returns:
+            Dictionary containing user information including username, id, email, etc.
+            
+        Raises:
+            httpx.HTTPError: If request fails (e.g., invalid token, network error)
+        """
+        response = await self._request('GET', 'user')
+        return response.json()
     
     # ===== Project Methods =====
     
@@ -305,6 +342,19 @@ class GitLabClient:
         async for project in self.paginated_request(f"groups/{group_id}/projects", params=params, max_pages=max_pages):
             projects.append(project)
         return projects
+    
+    async def get_current_user(self) -> Dict[str, Any]:
+        """
+        Get current authenticated user information.
+        
+        Returns:
+            User information dictionary
+            
+        Raises:
+            httpx.HTTPError: On request failure
+        """
+        response = await self._request("GET", "/user")
+        return response.json()
     
     async def get_project(self, project_id: int) -> Dict[str, Any]:
         """Get project details"""
@@ -546,6 +596,63 @@ class GitLabClient:
             packages.append(package)
         return packages
     
+    async def get_package_details(self, project_id: int, package_id: int) -> Dict[str, Any]:
+        """
+        Get detailed information about a package including files.
+        
+        Args:
+            project_id: Project ID
+            package_id: Package ID
+            
+        Returns:
+            Package details with package_files list
+        """
+        response = await self._request("GET", f"projects/{project_id}/packages/{package_id}")
+        return response.json()
+    
+    async def download_package_file(
+        self, 
+        project_id: int, 
+        package_id: int, 
+        package_file_id: int,
+        output_path: Path
+    ) -> bool:
+        """
+        Download a package file from GitLab.
+        
+        Args:
+            project_id: Project ID
+            package_id: Package ID
+            package_file_id: Package file ID
+            output_path: Where to save the downloaded file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Ensure parent directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Rate limiting
+            await self.rate_limiter.wait_if_needed()
+            
+            # Download the file
+            url = f"{self.api_url}/projects/{project_id}/packages/{package_id}/package_files/{package_file_id}"
+            
+            async with self.client.stream("GET", url) as response:
+                response.raise_for_status()
+                
+                with open(output_path, 'wb') as f:
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        f.write(chunk)
+            
+            self.logger.info(f"Downloaded package file to {output_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to download package file: {e}")
+            return False
+    
     # ===== Settings Methods =====
     
     async def list_protected_branches(self, project_id: int) -> List[Dict[str, Any]]:
@@ -660,6 +767,49 @@ class GitLabClient:
             return len(packages) > 0
         except Exception:
             return False
+    
+    # ===== Container Registry Methods =====
+    
+    async def list_registry_repositories(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        List container registry repositories for a project.
+        
+        Args:
+            project_id: Project ID
+            
+        Returns:
+            List of registry repositories with metadata
+        """
+        repositories = []
+        try:
+            async for repo in self.paginated_request(
+                f"projects/{project_id}/registry/repositories"
+            ):
+                repositories.append(repo)
+        except Exception as e:
+            self.logger.warning(f"Could not list registry repositories: {e}")
+        return repositories
+    
+    async def list_registry_tags(self, project_id: int, repository_id: int) -> List[Dict[str, Any]]:
+        """
+        List tags for a container registry repository.
+        
+        Args:
+            project_id: Project ID
+            repository_id: Repository ID from list_registry_repositories
+            
+        Returns:
+            List of tags with metadata (name, digest, size, etc.)
+        """
+        tags = []
+        try:
+            async for tag in self.paginated_request(
+                f"projects/{project_id}/registry/repositories/{repository_id}/tags"
+            ):
+                tags.append(tag)
+        except Exception as e:
+            self.logger.warning(f"Could not list registry tags for repository {repository_id}: {e}")
+        return tags
     
     # ===== LFS Methods =====
     
