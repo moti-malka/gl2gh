@@ -333,6 +333,22 @@ async def test_export_releases(export_agent, mock_gitlab_client, tmp_path):
     # Verify release directory structure
     release_dir = output_dir / "releases" / "v1.0.0"
     assert release_dir.exists()
+    
+    # Verify local_path is stored in releases metadata
+    with open(releases_file, 'r') as f:
+        releases = json.load(f)
+    
+    assert len(releases) == 1
+    release = releases[0]
+    assert "assets" in release
+    assets = release["assets"]["links"]
+    assert len(assets) == 2
+    
+    # Verify local_path was added to each asset
+    assert "local_path" in assets[0]
+    assert "local_path" in assets[1]
+    assert assets[0]["local_path"].endswith("myapp-linux-amd64")
+    assert assets[1]["local_path"].endswith("myapp-darwin-amd64")
 
 
 @pytest.mark.asyncio

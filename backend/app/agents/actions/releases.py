@@ -74,7 +74,14 @@ class UploadReleaseAssetAction(BaseAction):
             
             # Find release by tag or ID mapping
             if release_tag:
-                release = repo.get_release(release_tag)
+                # Find release by tag name - iterate through releases
+                release = None
+                for r in repo.get_releases():
+                    if r.tag_name == release_tag:
+                        release = r
+                        break
+                if not release:
+                    raise ValueError(f"Could not find GitHub release with tag: {release_tag}")
             elif gitlab_release_id:
                 github_release_id = self.get_id_mapping("release", gitlab_release_id)
                 if not github_release_id:

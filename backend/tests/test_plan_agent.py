@@ -503,8 +503,15 @@ def test_phase_constants():
 def test_plan_generator_release_assets():
     """Test release asset upload actions are created"""
     from app.agents.plan_agent import PlanGenerator, ActionType, Phase
+    from pathlib import Path
     
     generator = PlanGenerator("run-001", "proj-001", "user/repo", "target/repo")
+    
+    # Create release and asset paths
+    export_dir = Path("/tmp/export")
+    release_dir = export_dir / "releases" / "v1.0.0"
+    asset1_path = release_dir / "myapp-linux"
+    asset2_path = release_dir / "myapp-darwin"
     
     # Manually create a release action
     release_id = generator.add_action(
@@ -536,7 +543,7 @@ def test_plan_generator_release_assets():
         parameters={
             "target_repo": "target/repo",
             "release_tag": "v1.0.0",
-            "asset_path": "/tmp/export/releases/v1.0.0/myapp-linux",
+            "asset_path": str(asset1_path),
             "asset_name": "myapp-linux",
             "content_type": "application/octet-stream"
         },
@@ -554,7 +561,7 @@ def test_plan_generator_release_assets():
         parameters={
             "target_repo": "target/repo",
             "release_tag": "v1.0.0",
-            "asset_path": "/tmp/export/releases/v1.0.0/myapp-darwin",
+            "asset_path": str(asset2_path),
             "asset_name": "myapp-darwin",
             "content_type": "application/octet-stream"
         },
