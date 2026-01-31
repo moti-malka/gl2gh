@@ -1,56 +1,57 @@
-/* Inventory Panel - Compact Professional Design */
+/* GitHub-style Inventory Panel */
 .inventory-panel {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  margin-bottom: 24px;
+  background: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  margin-bottom: var(--gh-spacing-lg);
   overflow: hidden;
 }
 
 .inventory-summary {
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  padding: var(--gh-spacing-md);
+  background: var(--gh-bg-canvas-inset);
+  border-bottom: 1px solid var(--gh-border-default);
 }
 
 .inventory-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--gh-spacing-sm);
 }
 
 .inventory-icon {
-  font-size: 28px;
+  font-size: 1.25rem;
 }
 
 .inventory-title h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--gh-text-md);
   font-weight: 600;
+  color: var(--gh-fg-default);
 }
 
 .inventory-title p {
   margin: 2px 0 0;
-  font-size: 13px;
-  opacity: 0.9;
+  font-size: var(--gh-text-sm);
+  color: var(--gh-fg-muted);
 }
 
 .inventory-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 1px;
-  background: #e2e8f0;
+  background: var(--gh-border-muted);
   padding: 1px;
 }
 
 .inventory-item {
-  background: white;
-  padding: 14px 16px;
+  background: var(--gh-bg-canvas-default);
+  padding: var(--gh-spacing-md);
   transition: background 0.15s;
 }
 
 .inventory-item:hover {
-  background: #f8fafc;
+  background: var(--gh-bg-canvas-inset);
 }
 
 .inventory-item.empty {
@@ -60,19 +61,19 @@
 .inventory-item-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--gh-spacing-sm);
+  margin-bottom: var(--gh-spacing-sm);
 }
 
 .item-icon {
-  font-size: 16px;
+  font-size: var(--gh-text-md);
 }
 
 .item-label {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--gh-text-xs);
   font-weight: 600;
-  color: #4a5568;
+  color: var(--gh-fg-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -81,8 +82,8 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #48bb78;
-  color: white;
+  background: var(--gh-success-emphasis);
+  color: var(--gh-fg-on-emphasis);
   font-size: 10px;
   display: flex;
   align-items: center;
@@ -91,7 +92,7 @@
 
 .inventory-item-stats {
   display: flex;
-  gap: 16px;
+  gap: var(--gh-spacing-md);
 }
 
 .stat {
@@ -101,15 +102,15 @@
 }
 
 .stat-value {
-  font-size: 18px;
+  font-size: var(--gh-text-lg);
   font-weight: 700;
-  color: #1a202c;
+  color: var(--gh-fg-default);
   line-height: 1;
 }
 
 .stat-label {
   font-size: 10px;
-  color: #a0aec0;
+  color: var(--gh-fg-muted);
   margin-top: 2px;
   text-transform: uppercase;
 }
@@ -121,10 +122,10 @@
   }
   
   .inventory-item-stats {
-    gap: 12px;
+    gap: var(--gh-spacing-sm);
   }
   
   .stat-value {
-    font-size: 16px;
+    font-size: var(--gh-text-md);
   }
 }

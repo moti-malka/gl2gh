@@ -1,17 +1,55 @@
+@import './styles/github-theme.css';
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--gh-font-sans);
+  font-size: var(--gh-text-sm);
+  line-height: 1.5;
+  color: var(--gh-fg-default);
+  background-color: var(--gh-bg-canvas-inset);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: var(--gh-font-mono);
+  font-size: 85%;
+  background-color: rgba(175, 184, 193, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: var(--gh-radius-sm);
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* GitHub-style focus states */
+:focus-visible {
+  outline: 2px solid var(--gh-accent-fg);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 3px var(--gh-bg-canvas-default);
+}
+
+/* GitHub-style scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gh-border-default);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gh-fg-muted);
+}
+
+/* Selection style */
+::selection {
+  background: var(--gh-accent-muted);
 }

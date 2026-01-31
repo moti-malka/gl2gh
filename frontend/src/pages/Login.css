@@ -1,123 +1,165 @@
-/* Login Page Styles */
+/* GitHub-style Login Page */
 .login-page {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 2rem;
+  background: var(--gh-bg-canvas-inset);
+  padding: var(--gh-spacing-lg);
 }
 
 .login-container {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   width: 100%;
-  max-width: 400px;
-  overflow: hidden;
+  max-width: 340px;
 }
 
 .login-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 2rem;
   text-align: center;
+  margin-bottom: var(--gh-spacing-lg);
 }
 
 .login-header h1 {
   margin: 0;
-  font-size: 2.5rem;
-  font-weight: 700;
+  font-size: var(--gh-text-xxl);
+  font-weight: 300;
+  color: var(--gh-fg-default);
 }
 
 .login-header p {
-  margin: 0.5rem 0 0;
-  opacity: 0.9;
-  font-size: 0.875rem;
+  margin: var(--gh-spacing-sm) 0 0;
+  color: var(--gh-fg-muted);
+  font-size: var(--gh-text-sm);
+}
+
+/* GitHub Logo */
+.login-logo {
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto var(--gh-spacing-lg);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%231f2328' d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z'%3E%3C/path%3E%3C/svg%3E") no-repeat center;
+  background-size: contain;
 }
 
 .login-form {
-  padding: 2rem;
+  background: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  padding: var(--gh-spacing-md);
 }
 
 .login-form h2 {
-  margin: 0 0 1.5rem;
-  color: #2d3748;
-  font-size: 1.5rem;
+  margin: 0 0 var(--gh-spacing-md);
+  font-size: var(--gh-text-md);
+  font-weight: 400;
+  color: var(--gh-fg-default);
+  text-align: center;
 }
 
 .form-group {
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--gh-spacing-md);
 }
 
 .form-group label {
   display: block;
-  margin-bottom: 0.5rem;
-  color: #2d3748;
-  font-weight: 500;
-  font-size: 0.875rem;
+  margin-bottom: var(--gh-spacing-sm);
+  font-weight: 600;
+  font-size: var(--gh-text-sm);
+  color: var(--gh-fg-default);
 }
 
 .form-group input {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 1rem;
-  transition: border-color 0.2s;
+  padding: 5px 12px;
+  font-size: var(--gh-text-sm);
+  line-height: 20px;
+  background-color: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  box-shadow: var(--gh-shadow-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .form-group input:focus {
+  border-color: var(--gh-accent-emphasis);
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 0 0 3px var(--gh-accent-muted);
 }
 
 .form-group input:disabled {
-  background: #f7fafc;
+  background: var(--gh-bg-canvas-inset);
   cursor: not-allowed;
+}
+
+.form-group input::placeholder {
+  color: var(--gh-fg-muted);
 }
 
 .form-check {
   display: flex;
   align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--gh-spacing-md);
 }
 
 .form-check input[type="checkbox"] {
   width: auto;
-  margin-right: 0.5rem;
+  margin-right: var(--gh-spacing-sm);
   cursor: pointer;
+  accent-color: var(--gh-accent-emphasis);
 }
 
 .form-check label {
   margin: 0;
   cursor: pointer;
-  font-size: 0.875rem;
-  color: #4a5568;
+  font-size: var(--gh-text-sm);
+  color: var(--gh-fg-default);
 }
 
 .btn-block {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 16px;
+  font-size: var(--gh-text-sm);
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--gh-fg-on-emphasis);
+  background-color: var(--gh-success-emphasis);
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  border-radius: var(--gh-radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.btn-block:hover:not(:disabled) {
+  background-color: #1a7f37;
+}
+
+.btn-block:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .login-footer {
-  padding: 1.5rem 2rem;
-  background: #f7fafc;
+  margin-top: var(--gh-spacing-md);
+  padding: var(--gh-spacing-md);
+  background: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
   text-align: center;
-  border-top: 1px solid #e2e8f0;
 }
 
 .login-footer p {
   margin: 0;
-  color: #718096;
-  font-size: 0.875rem;
+  color: var(--gh-fg-default);
+  font-size: var(--gh-text-sm);
 }
 
 .login-footer a {
-  color: #667eea;
+  color: var(--gh-accent-fg);
   text-decoration: none;
-  font-weight: 600;
 }
 
 .login-footer a:hover {
@@ -126,14 +168,10 @@
 
 @media (max-width: 480px) {
   .login-page {
-    padding: 1rem;
+    padding: var(--gh-spacing-md);
   }
   
   .login-header h1 {
-    font-size: 2rem;
-  }
-  
-  .login-form {
-    padding: 1.5rem;
+    font-size: var(--gh-text-xl);
   }
 }

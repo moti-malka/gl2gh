@@ -1,99 +1,103 @@
-/* Quick Migrate Page Styles */
+/* GitHub-style Quick Migrate Page */
 
 .quick-migrate-page {
   max-width: 800px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: var(--gh-spacing-lg);
 }
 
 .quick-migrate-page .page-header {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: var(--gh-spacing-lg);
+  border-bottom: none;
 }
 
 .quick-migrate-page .page-subtitle {
-  color: #666;
-  font-size: 1.1rem;
+  color: var(--gh-fg-muted);
+  font-size: var(--gh-text-md);
 }
 
 .quick-migrate-form {
-  background: white;
-  border-radius: 8px;
-  padding: 2rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  padding: var(--gh-spacing-lg);
 }
 
 .form-section {
-  margin-bottom: 2rem;
+  margin-bottom: var(--gh-spacing-lg);
 }
 
 .form-section h2 {
-  font-size: 1.3rem;
-  margin-bottom: 1rem;
-  color: #333;
-  border-bottom: 2px solid #007bff;
-  padding-bottom: 0.5rem;
+  font-size: var(--gh-text-md);
+  font-weight: 600;
+  margin-bottom: var(--gh-spacing-md);
+  color: var(--gh-fg-default);
+  border-bottom: 1px solid var(--gh-border-default);
+  padding-bottom: var(--gh-spacing-sm);
 }
 
 .form-group {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--gh-spacing-md);
 }
 
 .form-group label {
   display: block;
   font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: #333;
+  margin-bottom: var(--gh-spacing-sm);
+  color: var(--gh-fg-default);
+  font-size: var(--gh-text-sm);
 }
 
 .form-group .required {
-  color: #dc3545;
-  margin-left: 0.25rem;
+  color: var(--gh-danger-fg);
+  margin-left: 2px;
 }
 
 .form-group input[type="text"],
 .form-group input[type="password"] {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-  transition: border-color 0.2s;
+  padding: 5px 12px;
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  font-size: var(--gh-text-sm);
+  line-height: 20px;
+  background: var(--gh-bg-canvas-default);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .form-group input[type="text"]:focus,
 .form-group input[type="password"]:focus {
   outline: none;
-  border-color: #007bff;
-  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+  border-color: var(--gh-accent-emphasis);
+  box-shadow: 0 0 0 3px var(--gh-accent-muted);
 }
 
 .form-group input.error {
-  border-color: #dc3545;
+  border-color: var(--gh-danger-emphasis);
 }
 
 .form-group input.error:focus {
-  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
+  box-shadow: 0 0 0 3px var(--gh-danger-muted);
 }
 
 .error-message {
   display: block;
-  color: #dc3545;
-  font-size: 0.875rem;
-  margin-top: 0.25rem;
+  color: var(--gh-danger-fg);
+  font-size: var(--gh-text-sm);
+  margin-top: var(--gh-spacing-xs);
 }
 
 .field-hint {
   display: block;
-  color: #666;
-  font-size: 0.875rem;
-  margin-top: 0.25rem;
-  font-style: italic;
+  color: var(--gh-fg-muted);
+  font-size: var(--gh-text-sm);
+  margin-top: var(--gh-spacing-xs);
 }
 
 .form-divider {
   text-align: center;
-  margin: 2rem 0;
+  margin: var(--gh-spacing-lg) 0;
   position: relative;
 }
 
@@ -104,20 +108,20 @@
   right: 0;
   top: 50%;
   height: 1px;
-  background: #ddd;
+  background: var(--gh-border-default);
 }
 
 .form-divider span {
   position: relative;
-  background: white;
-  padding: 0 1rem;
-  color: #666;
+  background: var(--gh-bg-canvas-default);
+  padding: 0 var(--gh-spacing-md);
+  color: var(--gh-fg-muted);
   font-weight: 600;
-  font-size: 1.1rem;
+  font-size: var(--gh-text-sm);
 }
 
 .checkbox-group {
-  margin-bottom: 1rem;
+  margin-bottom: var(--gh-spacing-md);
 }
 
 .checkbox-label {
@@ -128,87 +132,54 @@
 }
 
 .checkbox-label input[type="checkbox"] {
-  margin-right: 0.75rem;
-  margin-top: 0.25rem;
-  width: 18px;
-  height: 18px;
+  margin-right: var(--gh-spacing-sm);
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
   cursor: pointer;
+  accent-color: var(--gh-accent-emphasis);
 }
 
 .checkbox-label input[type="checkbox"]:focus {
-  outline: 2px solid #007bff;
+  outline: 2px solid var(--gh-accent-emphasis);
   outline-offset: 2px;
 }
 
 .checkbox-label span {
   font-weight: 500;
-  color: #333;
+  color: var(--gh-fg-default);
+  font-size: var(--gh-text-sm);
 }
 
 .checkbox-group .field-hint {
-  margin-left: 2.25rem;
+  margin-left: var(--gh-spacing-lg);
   margin-top: 0;
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 1rem;
-  margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #ddd;
-}
-
-.btn {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 4px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #007bff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #0056b3;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
-}
-
-.btn-secondary {
-  background: #6c757d;
-  color: white;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: #545b62;
+  gap: var(--gh-spacing-md);
+  margin-top: var(--gh-spacing-lg);
+  padding-top: var(--gh-spacing-md);
+  border-top: 1px solid var(--gh-border-default);
 }
 
 /* Responsive design */
 @media (max-width: 768px) {
   .quick-migrate-page {
-    padding: 1rem;
+    padding: var(--gh-spacing-md);
   }
 
   .quick-migrate-form {
-    padding: 1.5rem;
+    padding: var(--gh-spacing-md);
   }
 
   .form-actions {
     flex-direction: column;
   }
 
-  .btn {
+  .form-actions .btn {
     width: 100%;
   }
 }

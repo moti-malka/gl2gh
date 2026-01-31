@@ -1,46 +1,46 @@
-/* Connection Test Component Styles */
-
+/* GitHub-style Connection Test */
 .connection-test {
-  margin-top: 1rem;
-  margin-bottom: 1rem;
+  margin-top: var(--gh-spacing-md);
+  margin-bottom: var(--gh-spacing-md);
 }
 
 .connection-test .test-button {
-  padding: 0.5rem 1.5rem;
-  font-size: 0.875rem;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-  background: #f7fafc;
-  color: #2d3748;
+  padding: 6px var(--gh-spacing-md);
+  font-size: var(--gh-text-sm);
+  border-radius: var(--gh-radius-sm);
+  border: 1px solid var(--gh-border-default);
+  background: var(--gh-bg-canvas-inset);
+  color: var(--gh-fg-default);
   cursor: pointer;
-  transition: all 0.2s;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .connection-test .test-button:hover:not(:disabled) {
-  background: #e2e8f0;
-  border-color: #cbd5e0;
+  background: var(--gh-bg-canvas-subtle);
+  border-color: var(--gh-fg-muted);
 }
 
 .connection-test .test-button:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .test-result {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding: 1rem;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  animation: slideIn 0.3s ease-out;
+  gap: var(--gh-spacing-sm);
+  margin-top: var(--gh-spacing-md);
+  padding: var(--gh-spacing-md);
+  border-radius: var(--gh-radius-sm);
+  font-size: var(--gh-text-sm);
+  animation: slideIn 0.2s ease-out;
 }
 
 @keyframes slideIn {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
@@ -49,15 +49,15 @@
 }
 
 .test-success {
-  background: #f0fff4;
-  border: 1px solid #9ae6b4;
-  color: #22543d;
+  background: var(--gh-success-subtle);
+  border: 1px solid var(--gh-success-muted);
+  color: var(--gh-success-fg);
 }
 
 .test-error {
-  background: #fff5f5;
-  border: 1px solid #feb2b2;
-  color: #742a2a;
+  background: var(--gh-danger-subtle);
+  border: 1px solid var(--gh-danger-muted);
+  color: var(--gh-danger-fg);
 }
 
 .test-icon {
@@ -70,7 +70,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 4px;
 }
 
 .test-user {
@@ -78,13 +78,13 @@
 }
 
 .test-user strong {
-  color: #22543d;
+  color: var(--gh-success-fg);
 }
 
 .test-scopes {
-  font-size: 0.8rem;
-  color: #2d7748;
-  opacity: 0.9;
+  font-size: var(--gh-text-xs);
+  color: var(--gh-success-fg);
+  opacity: 0.85;
 }
 
 .test-message {

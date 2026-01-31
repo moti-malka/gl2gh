@@ -1,0 +1,90 @@
+/* GitHub-inspired Design System for gl2gh */
+
+:root {
+  /* GitHub Color Palette */
+  --gh-bg-canvas: #0d1117;
+  --gh-bg-canvas-subtle: #f6f8fa;
+  --gh-bg-canvas-default: #ffffff;
+  --gh-bg-canvas-inset: #f6f8fa;
+  
+  --gh-border-default: #d0d7de;
+  --gh-border-muted: #d8dee4;
+  --gh-border-subtle: #eaeef2;
+  
+  --gh-fg-default: #1f2328;
+  --gh-fg-muted: #656d76;
+  --gh-fg-subtle: #6e7781;
+  --gh-fg-on-emphasis: #ffffff;
+  
+  --gh-accent-fg: #0969da;
+  --gh-accent-emphasis: #0969da;
+  --gh-accent-muted: rgba(84, 174, 255, 0.4);
+  --gh-accent-subtle: #ddf4ff;
+  
+  --gh-success-fg: #1a7f37;
+  --gh-success-emphasis: #1f883d;
+  --gh-success-muted: rgba(74, 194, 107, 0.4);
+  --gh-success-subtle: #dafbe1;
+  
+  --gh-attention-fg: #9a6700;
+  --gh-attention-emphasis: #9a6700;
+  --gh-attention-muted: rgba(212, 167, 44, 0.4);
+  --gh-attention-subtle: #fff8c5;
+  
+  --gh-danger-fg: #d1242f;
+  --gh-danger-emphasis: #cf222e;
+  --gh-danger-muted: rgba(255, 129, 130, 0.4);
+  --gh-danger-subtle: #ffebe9;
+  
+  --gh-done-fg: #8250df;
+  --gh-done-emphasis: #8250df;
+  --gh-done-subtle: #fbefff;
+  
+  --gh-neutral-fg: #57606a;
+  --gh-neutral-emphasis: #6e7781;
+  --gh-neutral-muted: rgba(110, 119, 129, 0.4);
+  --gh-neutral-subtle: #eaeef2;
+  
+  --gh-header-bg: #24292f;
+  --gh-header-divider: #57606a;
+  
+  /* Shadows */
+  --gh-shadow-sm: 0 1px 0 rgba(27, 31, 36, 0.04);
+  --gh-shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
+  --gh-shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
+  --gh-shadow-xl: 0 12px 28px rgba(140, 149, 159, 0.3);
+  
+  /* Border Radius */
+  --gh-radius-sm: 3px;
+  --gh-radius-md: 6px;
+  --gh-radius-lg: 12px;
+  
+  /* Spacing */
+  --gh-spacing-xs: 4px;
+  --gh-spacing-sm: 8px;
+  --gh-spacing-md: 16px;
+  --gh-spacing-lg: 24px;
+  --gh-spacing-xl: 32px;
+  --gh-spacing-xxl: 48px;
+  
+  /* Typography */
+  --gh-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --gh-font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  
+  --gh-text-xs: 12px;
+  --gh-text-sm: 14px;
+  --gh-text-md: 16px;
+  --gh-text-lg: 20px;
+  --gh-text-xl: 24px;
+  --gh-text-xxl: 32px;
+}
+
+/* Dark theme variables */
+[data-theme="dark"] {
+  --gh-bg-canvas-default: #0d1117;
+  --gh-bg-canvas-inset: #010409;
+  --gh-border-default: #30363d;
+  --gh-border-muted: #21262d;
+  --gh-fg-default: #e6edf3;
+  --gh-fg-muted: #8b949e;
+}

@@ -1,10 +1,10 @@
-/* User Mapping Page Styles */
+/* GitHub-style User Mapping Page */
 .user-mapping-page .mapping-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
+  margin-bottom: var(--gh-spacing-lg);
+  gap: var(--gh-spacing-md);
   flex-wrap: wrap;
 }
 
@@ -15,12 +15,12 @@
 
 .toolbar-right {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--gh-spacing-sm);
 }
 
 .btn-xs {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
+  padding: 4px var(--gh-spacing-sm);
+  font-size: var(--gh-text-xs);
 }
 
 .mapping-table-container {
@@ -30,26 +30,26 @@
 .mapping-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--gh-bg-canvas-default);
 }
 
 .mapping-table th {
   text-align: left;
-  padding: 1rem;
-  background: #f7fafc;
-  border-bottom: 2px solid #e2e8f0;
+  padding: var(--gh-spacing-md);
+  background: var(--gh-bg-canvas-inset);
+  border-bottom: 1px solid var(--gh-border-default);
   font-weight: 600;
-  color: #2d3748;
-  font-size: 0.875rem;
+  color: var(--gh-fg-default);
+  font-size: var(--gh-text-sm);
 }
 
 .mapping-table td {
-  padding: 1rem;
-  border-bottom: 1px solid #e2e8f0;
+  padding: var(--gh-spacing-md);
+  border-bottom: 1px solid var(--gh-border-muted);
 }
 
 .mapping-row.status-confirmed {
-  background: #f0fff4;
+  background: var(--gh-success-subtle);
 }
 
 .mapping-row.status-skipped {
@@ -58,93 +58,93 @@
 
 .arrow-cell {
   text-align: center;
-  color: #667eea;
+  color: var(--gh-accent-fg);
   font-size: 1.25rem;
 }
 
 .user-cell {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 4px;
 }
 
 .user-cell strong {
-  color: #2d3748;
+  color: var(--gh-fg-default);
 }
 
 .user-email {
-  font-size: 0.75rem;
-  color: #718096;
+  font-size: var(--gh-text-xs);
+  color: var(--gh-fg-muted);
 }
 
 .unmapped {
-  color: #e53e3e;
+  color: var(--gh-danger-fg);
   font-style: italic;
 }
 
 .confidence-badge {
   display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  padding: 2px var(--gh-spacing-sm);
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .confidence-green {
-  background: #c6f6d5;
-  color: #22543d;
+  background: var(--gh-success-subtle);
+  color: var(--gh-success-fg);
 }
 
 .confidence-yellow {
-  background: #fefcbf;
-  color: #744210;
+  background: var(--gh-attention-subtle);
+  color: var(--gh-attention-fg);
 }
 
 .confidence-orange {
-  background: #feebc8;
-  color: #7c2d12;
+  background: #fff1e5;
+  color: #bc4c00;
 }
 
 .confidence-gray {
-  background: #e2e8f0;
-  color: #4a5568;
+  background: var(--gh-neutral-subtle);
+  color: var(--gh-fg-muted);
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  gap: 4px;
+  padding: 2px var(--gh-spacing-sm);
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: capitalize;
 }
 
 .status-confirmed {
-  background: #c6f6d5;
-  color: #22543d;
+  background: var(--gh-success-subtle);
+  color: var(--gh-success-fg);
 }
 
 .status-automatic {
-  background: #bee3f8;
-  color: #2c5282;
+  background: var(--gh-accent-subtle);
+  color: var(--gh-accent-fg);
 }
 
 .status-manual {
-  background: #d6bcfa;
-  color: #44337a;
+  background: #eddeff;
+  color: #6e40c9;
 }
 
 .status-skipped {
-  background: #e2e8f0;
-  color: #4a5568;
+  background: var(--gh-neutral-subtle);
+  color: var(--gh-fg-muted);
 }
 
 .status-unmapped {
-  background: #fed7d7;
-  color: #742a2a;
+  background: var(--gh-danger-subtle);
+  color: var(--gh-danger-fg);
 }
 
 /* Modal Styles */
@@ -154,7 +154,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(27, 31, 36, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -162,31 +162,33 @@
 }
 
 .modal {
-  background: white;
-  border-radius: 8px;
+  background: var(--gh-bg-canvas-default);
+  border-radius: var(--gh-radius-lg);
   width: 90%;
   max-width: 600px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--gh-shadow-lg);
+  border: 1px solid var(--gh-border-default);
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid #e2e8f0;
+  padding: var(--gh-spacing-lg);
+  border-bottom: 1px solid var(--gh-border-muted);
 }
 
 .modal-header h3 {
   margin: 0;
-  color: #2d3748;
+  color: var(--gh-fg-default);
+  font-weight: 600;
 }
 
 .modal-close {
   background: none;
   border: none;
-  font-size: 2rem;
-  color: #718096;
+  font-size: 1.5rem;
+  color: var(--gh-fg-muted);
   cursor: pointer;
   padding: 0;
   width: 32px;
@@ -194,49 +196,52 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--gh-radius-sm);
 }
 
 .modal-close:hover {
-  background: #f7fafc;
+  background: var(--gh-bg-canvas-inset);
 }
 
 .modal-body {
-  padding: 1.5rem;
+  padding: var(--gh-spacing-lg);
 }
 
 .mapping-preview {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  gap: 1.5rem;
+  gap: var(--gh-spacing-lg);
   align-items: center;
 }
 
 .mapping-preview .arrow {
   font-size: 2rem;
-  color: #667eea;
+  color: var(--gh-accent-fg);
 }
 
 .github-input {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 1rem;
-  margin-top: 0.5rem;
+  padding: var(--gh-spacing-sm);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-sm);
+  font-size: var(--gh-text-md);
+  margin-top: var(--gh-spacing-sm);
+  background: var(--gh-bg-canvas-default);
+  color: var(--gh-fg-default);
 }
 
 .github-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--gh-accent-fg);
+  box-shadow: 0 0 0 3px var(--gh-accent-subtle);
 }
 
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 1rem;
-  padding: 1.5rem;
-  border-top: 1px solid #e2e8f0;
+  gap: var(--gh-spacing-md);
+  padding: var(--gh-spacing-lg);
+  border-top: 1px solid var(--gh-border-muted);
 }
 
 @media (max-width: 768px) {
@@ -255,12 +260,12 @@
   }
   
   .mapping-table {
-    font-size: 0.875rem;
+    font-size: var(--gh-text-sm);
   }
   
   .mapping-table th,
   .mapping-table td {
-    padding: 0.75rem 0.5rem;
+    padding: var(--gh-spacing-sm);
   }
   
   .mapping-preview {

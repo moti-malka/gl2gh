@@ -1,51 +1,56 @@
-/* Error Boundary Styles */
+/* GitHub-style Error Boundary */
 .error-boundary {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f7fa;
-  padding: 2rem;
+  background: var(--gh-bg-canvas-inset);
+  padding: var(--gh-spacing-xl);
 }
 
 .error-content {
-  background: white;
-  padding: 3rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--gh-bg-canvas-default);
+  padding: var(--gh-spacing-xl) var(--gh-spacing-xxl);
+  border-radius: var(--gh-radius-md);
+  border: 1px solid var(--gh-border-default);
+  box-shadow: var(--gh-shadow-md);
   max-width: 600px;
   text-align: center;
 }
 
 .error-content h1 {
-  color: #e53e3e;
-  margin-bottom: 1rem;
+  color: var(--gh-danger-fg);
+  margin-bottom: var(--gh-spacing-md);
+  font-size: var(--gh-text-xl);
+  font-weight: 600;
 }
 
 .error-content p {
-  color: #718096;
-  margin-bottom: 2rem;
+  color: var(--gh-fg-muted);
+  margin-bottom: var(--gh-spacing-xl);
+  font-size: var(--gh-text-md);
 }
 
 .error-details {
   text-align: left;
-  margin: 2rem 0;
-  padding: 1rem;
-  background: #f7fafc;
-  border-radius: 4px;
-  border: 1px solid #e2e8f0;
+  margin: var(--gh-spacing-xl) 0;
+  padding: var(--gh-spacing-md);
+  background: var(--gh-bg-canvas-inset);
+  border-radius: var(--gh-radius-sm);
+  border: 1px solid var(--gh-border-default);
 }
 
 .error-details summary {
   cursor: pointer;
   font-weight: 600;
-  color: #2d3748;
-  margin-bottom: 0.5rem;
+  color: var(--gh-fg-default);
+  margin-bottom: var(--gh-spacing-sm);
 }
 
 .error-details pre {
   overflow: auto;
-  font-size: 0.75rem;
-  color: #e53e3e;
-  margin-top: 0.5rem;
+  font-size: var(--gh-text-xs);
+  color: var(--gh-danger-fg);
+  margin-top: var(--gh-spacing-sm);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }

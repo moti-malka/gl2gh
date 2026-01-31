@@ -1,21 +1,24 @@
-/* Projects Page Styles */
+/* GitHub-style Projects Page */
 .projects-page .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 2rem;
+  margin-bottom: var(--gh-spacing-lg);
+  padding-bottom: var(--gh-spacing-md);
+  border-bottom: 1px solid var(--gh-border-default);
 }
 
 .page-subtitle {
-  color: #718096;
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
+  color: var(--gh-fg-muted);
+  margin-top: var(--gh-spacing-xs);
+  font-size: var(--gh-text-sm);
 }
 
+/* GitHub-style Filters */
 .filters {
   display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: var(--gh-spacing-md);
+  margin-bottom: var(--gh-spacing-md);
   flex-wrap: wrap;
 }
 
@@ -26,42 +29,58 @@
 
 .search-input {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 1rem;
+  padding: 5px 12px;
+  font-size: var(--gh-text-sm);
+  line-height: 20px;
+  background-color: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .search-input:focus {
+  border-color: var(--gh-accent-emphasis);
   outline: none;
-  border-color: #667eea;
+  box-shadow: 0 0 0 3px var(--gh-accent-muted);
+}
+
+.search-input::placeholder {
+  color: var(--gh-fg-muted);
 }
 
 .filter-group {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--gh-spacing-sm);
 }
 
 .filter-group label {
   font-weight: 500;
-  color: #2d3748;
-  font-size: 0.875rem;
+  color: var(--gh-fg-default);
+  font-size: var(--gh-text-sm);
 }
 
 .filter-select {
-  padding: 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 1rem;
-  background: white;
+  padding: 5px 32px 5px 12px;
+  font-size: var(--gh-text-sm);
+  line-height: 20px;
+  background-color: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='%236e7781' d='m4.427 9.427 3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 9H4.604a.25.25 0 0 0-.177.427M4.423 6.47 7.82 3.072a.25.25 0 0 1 .354 0L11.57 6.47a.25.25 0 0 1-.177.427H4.6a.25.25 0 0 1-.177-.427'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
 }
 
 .filter-select:focus {
+  border-color: var(--gh-accent-emphasis);
   outline: none;
-  border-color: #667eea;
+  box-shadow: 0 0 0 3px var(--gh-accent-muted);
 }
 
+/* GitHub-style Table */
 .projects-table {
   overflow-x: auto;
 }
@@ -73,23 +92,26 @@
 
 .projects-table th {
   text-align: left;
-  padding: 1rem;
-  background: #f7fafc;
-  border-bottom: 2px solid #e2e8f0;
+  padding: var(--gh-spacing-sm) var(--gh-spacing-md);
+  background: var(--gh-bg-canvas-inset);
+  border-top: 1px solid var(--gh-border-default);
+  border-bottom: 1px solid var(--gh-border-default);
   font-weight: 600;
-  color: #2d3748;
-  font-size: 0.875rem;
+  color: var(--gh-fg-default);
+  font-size: var(--gh-text-xs);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .projects-table td {
-  padding: 1rem;
-  border-bottom: 1px solid #e2e8f0;
+  padding: var(--gh-spacing-sm) var(--gh-spacing-md);
+  border-bottom: 1px solid var(--gh-border-muted);
+  font-size: var(--gh-text-sm);
+  color: var(--gh-fg-default);
 }
 
 .projects-table tbody tr:hover {
-  background: #f7fafc;
+  background: var(--gh-bg-canvas-inset);
 }
 
 .project-link {
@@ -97,94 +119,132 @@
   color: inherit;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 2px;
 }
 
 .project-link:hover strong {
-  color: #667eea;
+  color: var(--gh-accent-fg);
+  text-decoration: underline;
+}
+
+.project-link strong {
+  color: var(--gh-accent-fg);
+  font-weight: 600;
 }
 
 .project-desc {
-  font-size: 0.875rem;
-  color: #718096;
+  font-size: var(--gh-text-xs);
+  color: var(--gh-fg-muted);
 }
 
+/* GitHub-style Status Badges */
 .status-badge {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  font-size: var(--gh-text-xs);
+  font-weight: 500;
+  line-height: 18px;
+  border: 1px solid transparent;
+  border-radius: 2em;
+  white-space: nowrap;
 }
 
 .status-created {
-  background: #bee3f8;
-  color: #2c5282;
+  color: var(--gh-fg-muted);
+  background-color: var(--gh-bg-canvas-inset);
+  border-color: var(--gh-border-default);
 }
 
 .status-configured {
-  background: #c6f6d5;
-  color: #276749;
+  color: var(--gh-accent-fg);
+  background-color: var(--gh-accent-subtle);
+  border-color: var(--gh-accent-muted);
 }
 
 .status-running {
-  background: #fefcbf;
-  color: #744210;
+  color: var(--gh-attention-fg);
+  background-color: var(--gh-attention-subtle);
+  border-color: var(--gh-attention-muted);
 }
 
 .status-completed {
-  background: #c6f6d5;
-  color: #22543d;
+  color: var(--gh-success-fg);
+  background-color: var(--gh-success-subtle);
+  border-color: var(--gh-success-muted);
 }
 
 .status-failed {
-  background: #fed7d7;
-  color: #742a2a;
+  color: var(--gh-danger-fg);
+  background-color: var(--gh-danger-subtle);
+  border-color: var(--gh-danger-muted);
 }
 
+/* Action Buttons */
 .action-buttons {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--gh-spacing-sm);
 }
 
 .btn-sm {
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
+  padding: 3px 12px;
+  font-size: var(--gh-text-xs);
+  line-height: 20px;
 }
 
 .btn-danger {
-  background: #e53e3e;
-  color: white;
+  color: var(--gh-danger-fg);
+  background-color: var(--gh-bg-canvas-inset);
+  border-color: var(--gh-border-default);
 }
 
 .btn-danger:hover {
-  background: #c53030;
+  color: var(--gh-fg-on-emphasis);
+  background-color: var(--gh-danger-emphasis);
+  border-color: var(--gh-danger-emphasis);
 }
 
+/* GitHub-style Pagination */
 .pagination {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 1rem;
-  margin-top: 2rem;
+  gap: var(--gh-spacing-sm);
+  margin-top: var(--gh-spacing-lg);
+  padding-top: var(--gh-spacing-md);
+  border-top: 1px solid var(--gh-border-default);
 }
 
-.pagination-info {
-  color: #718096;
-  font-size: 0.875rem;
+.pagination button {
+  padding: 5px 10px;
+  font-size: var(--gh-text-sm);
+  color: var(--gh-accent-fg);
+  background: var(--gh-bg-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: var(--gh-bg-canvas-inset);
 }
 
 .pagination button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  color: var(--gh-fg-muted);
+}
+
+.pagination-info {
+  color: var(--gh-fg-muted);
+  font-size: var(--gh-text-sm);
 }
 
 @media (max-width: 768px) {
   .projects-page .page-header {
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--gh-spacing-md);
   }
   
   .filters {
@@ -196,12 +256,12 @@
   }
   
   .projects-table {
-    font-size: 0.875rem;
+    font-size: var(--gh-text-sm);
   }
   
   .projects-table th,
   .projects-table td {
-    padding: 0.75rem 0.5rem;
+    padding: var(--gh-spacing-sm);
   }
   
   .action-buttons {
