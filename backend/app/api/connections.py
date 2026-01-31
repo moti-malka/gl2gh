@@ -859,15 +859,11 @@ async def set_migration_scope(
     
     project_service = ProjectService()
     
-    # Update project settings with the scope
+    # Update project settings with the scope using dot notation for deep merge
     updates = {
-        "settings": {
-            "gitlab": {
-                "scope_type": scope.scope_type,
-                "scope_id": scope.scope_id,
-                "scope_path": scope.scope_path
-            }
-        }
+        "settings.gitlab.scope_type": scope.scope_type,
+        "settings.gitlab.scope_id": scope.scope_id,
+        "settings.gitlab.scope_path": scope.scope_path
     }
     
     updated = await project_service.update_project(project_id, updates)

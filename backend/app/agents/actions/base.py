@@ -24,6 +24,9 @@ class ActionResult:
     timestamp: Optional[datetime] = None
     rollback_data: Optional[Dict[str, Any]] = None
     reversible: bool = True
+    simulated: bool = False
+    simulation_outcome: Optional[str] = None
+    simulation_message: Optional[str] = None
     
     def __post_init__(self):
         if self.timestamp is None:

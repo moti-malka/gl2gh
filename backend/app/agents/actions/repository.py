@@ -176,8 +176,14 @@ class PushCodeAction(BaseAction):
     
     async def execute(self) -> ActionResult:
         try:
-            bundle_path = Path(self.parameters["bundle_path"])
+            bundle_path_param = self.parameters["bundle_path"]
             target_repo = self.parameters["target_repo"]
+            
+            # Resolve bundle path relative to output_dir if not absolute
+            bundle_path = Path(bundle_path_param)
+            if not bundle_path.is_absolute():
+                output_dir = self.context.get("output_dir", ".")
+                bundle_path = Path(output_dir) / bundle_path
             
             if not bundle_path.exists():
                 raise FileNotFoundError(f"Bundle file not found: {bundle_path}")
@@ -195,6 +201,42 @@ class PushCodeAction(BaseAction):
                 subprocess.run(
                     ["git", "clone", str(bundle_path), str(temp_dir)],
                     check=True,
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Create local branches for all remote tracking branches
+                # This ensures all branches are pushed, not just the default
+                result = subprocess.run(
+                    ["git", "branch", "-r"],
+                    cwd=temp_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                for line in result.stdout.strip().split('\n'):
+                    branch = line.strip()
+                    if branch and '->' not in branch:  # Skip HEAD -> master
+                        # Extract branch name (remove 'origin/' prefix)
+                        local_branch = branch.replace('origin/', '')
+                        # Skip if it's the default branch (already checked out)
+                        if local_branch != 'master' and local_branch != 'main':
+                            try:
+                                subprocess.run(
+                                    ["git", "checkout", "-b", local_branch, branch],
+                                    cwd=temp_dir,
+                                    capture_output=True,
+                                    text=True,
+                                    check=True
+                                )
+                            except subprocess.CalledProcessError:
+                                # Branch might already exist, ignore
+                                pass
+                
+                # Return to default branch
+                subprocess.run(
+                    ["git", "checkout", "master"],
+                    cwd=temp_dir,
                     capture_output=True,
                     text=True
                 )

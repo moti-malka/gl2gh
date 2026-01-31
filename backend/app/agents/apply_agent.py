@@ -155,7 +155,7 @@ class ApplyAgent(BaseAgent):
             if not dry_run:
                 outputs["id_mappings"] = id_mappings
             
-            artifacts = [str(output_dir / report_filename)]
+            artifacts = [str(output_dir / "apply_report.json")]
             if not dry_run:
                 artifacts.append(str(output_dir / "id_mappings.json"))
             

@@ -583,7 +583,7 @@ class PlanAgent(BaseAgent):
             phase=Phase.FOUNDATION,
             description="Push git bundle to GitHub",
             parameters={
-                "bundle_path": f"export/{generator.gitlab_project}/repo.bundle",
+                "bundle_path": "repository/bundle.git",  # Path relative to output_dir
                 "target_repo": generator.github_target,
                 "force": False
             },
