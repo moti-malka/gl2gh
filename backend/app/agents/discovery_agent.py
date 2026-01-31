@@ -302,7 +302,7 @@ class DiscoveryAgent(BaseAgent):
         try:
             # 2. CI/CD - Enhanced with detailed counts
             has_ci = await client.has_ci_config(project_id)
-            pipelines = await client.list_pipelines(project_id, max_pages=1) if has_ci else []
+            pipelines = await client.list_pipelines(project_id, max_count=10) if has_ci else []
             variables = await client.list_variables(project_id) if has_ci else []
             environments = await client.list_environments(project_id) if has_ci else []
             schedules = await client.list_pipeline_schedules(project_id) if has_ci else []

@@ -480,7 +480,10 @@ class PlanAgent(BaseAgent):
             transform_data = inputs.get("transform_data", {})
             
             # Load export data from files (more reliable than passing through context)
-            export_data = self._load_export_data(output_dir.parent, inputs.get("export_data", {}))
+            # Note: output_dir may be the run directory itself (without /plan suffix)
+            # so we check if issues exist at output_dir, otherwise try parent
+            run_dir = output_dir if (output_dir / "issues").exists() else output_dir.parent
+            export_data = self._load_export_data(run_dir, inputs.get("export_data", {}))
             
             # Load component selection (if available)
             component_selection = inputs.get("component_selection", self._get_default_selection())
@@ -528,16 +531,16 @@ class PlanAgent(BaseAgent):
             ).to_dict()
     
     def _get_default_selection(self) -> Dict[str, Any]:
-        """Get default component selection (all enabled except optional ones)"""
+        """Get default component selection - migrate everything by default"""
         return {
-            "repository": {"enabled": True, "lfs": False, "submodules": False},
+            "repository": {"enabled": True, "lfs": True, "submodules": True},
             "ci_cd": {"enabled": True, "workflows": True, "variables": True, "environments": True, "schedules": True},
-            "issues": {"enabled": True, "open": True, "closed": False, "labels": True, "milestones": True},
-            "merge_requests": {"enabled": False, "open": False, "merged": False},
+            "issues": {"enabled": True, "open": True, "closed": True, "labels": True, "milestones": True},
+            "merge_requests": {"enabled": True, "open": True, "merged": True, "closed": True},
             "wiki": {"enabled": True},
-            "releases": {"enabled": True, "notes": True, "assets": False},
-            "packages": {"enabled": False},
-            "settings": {"enabled": False, "protected_branches": False, "webhooks": False, "members": False}
+            "releases": {"enabled": True, "notes": True, "assets": True},
+            "packages": {"enabled": True},
+            "settings": {"enabled": True, "protected_branches": True, "webhooks": True, "members": True, "deploy_keys": True}
         }
     
     def _generate_plan_actions(

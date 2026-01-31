@@ -25,10 +25,9 @@ def setup_logging(level=logging.INFO):
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
     
-    # Create formatter
+    # Create formatter - simple format without rename to avoid KeyError
     formatter = MaskingFormatter(
-        '%(timestamp)s %(level)s %(name)s %(message)s',
-        rename_fields={'levelname': 'level', 'asctime': 'timestamp'}
+        '%(asctime)s %(levelname)s %(name)s %(message)s'
     )
     handler.setFormatter(formatter)
     

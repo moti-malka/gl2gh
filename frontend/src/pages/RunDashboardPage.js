@@ -13,6 +13,55 @@ import { ComponentInventory } from '../components/ComponentInventory';
 import { ComponentSelector } from '../components/ComponentSelector';
 import './RunDashboardPage.css';
 
+// Helper functions for action display
+const getActionIcon = (actionType) => {
+  const icons = {
+    'repo_create': '📦',
+    'repo_push': '⬆️',
+    'issue_create': '📋',
+    'issue_migrate': '📋',
+    'mr_create': '🔀',
+    'mr_migrate': '🔀',
+    'pr_create': '🔀',
+    'wiki_migrate': '📖',
+    'wiki_create': '📖',
+    'release_create': '🏷️',
+    'label_create': '🏷️',
+    'milestone_create': '🎯',
+    'branch_protect': '🛡️',
+    'webhook_create': '🔗',
+    'ci_migrate': '⚙️',
+    'workflow_create': '⚙️',
+    'user_map': '👤',
+    'settings_apply': '⚙️'
+  };
+  return icons[actionType] || '▶️';
+};
+
+const formatActionType = (actionType) => {
+  const labels = {
+    'repo_create': 'Create Repository',
+    'repo_push': 'Push Code',
+    'issue_create': 'Create Issues',
+    'issue_migrate': 'Migrate Issues',
+    'mr_create': 'Create Pull Requests',
+    'mr_migrate': 'Migrate Merge Requests',
+    'pr_create': 'Create Pull Requests',
+    'wiki_migrate': 'Migrate Wiki',
+    'wiki_create': 'Create Wiki Pages',
+    'release_create': 'Create Releases',
+    'label_create': 'Create Labels',
+    'milestone_create': 'Create Milestones',
+    'branch_protect': 'Protect Branches',
+    'webhook_create': 'Create Webhooks',
+    'ci_migrate': 'Migrate CI/CD',
+    'workflow_create': 'Create Workflows',
+    'user_map': 'Map Users',
+    'settings_apply': 'Apply Settings'
+  };
+  return labels[actionType] || actionType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+
 export const RunDashboardPage = () => {
   const { runId } = useParams();
   const [run, setRun] = useState(null);
@@ -176,7 +225,7 @@ export const RunDashboardPage = () => {
 
   // Load inventory after discovery completes
   useEffect(() => {
-    if (run && run.stage && ['EXPORT', 'TRANSFORM', 'PLAN', 'APPLY', 'VERIFY'].includes(run.stage)) {
+    if (run && run.stage && ['EXPORT', 'TRANSFORM', 'PLAN', 'APPLY', 'VERIFY', 'DONE'].includes(run.stage)) {
       // Discovery has completed, load inventory
       if (!inventory && !loadingInventory) {
         loadInventory();
@@ -401,92 +450,92 @@ export const RunDashboardPage = () => {
         </div>
       )}
 
-      <div className="run-overview">
-        <div className="overview-card">
-          <h3>Status</h3>
-          <span className={`status-badge status-${run.status}`}>
-            {run.status}
-          </span>
+      {/* Compact Status Bar */}
+      <div className="status-bar">
+        <div className="status-item">
+          <span className="status-label">Status</span>
+          <span className={`status-value status-${run.status}`}>{run.status}</span>
         </div>
-        
-        <div className="overview-card">
-          <h3>Mode</h3>
-          <p>{run.mode}</p>
+        <div className="status-item">
+          <span className="status-label">Mode</span>
+          <span className="status-value">{run.mode}</span>
         </div>
-        
-        <div className="overview-card">
-          <h3>Progress</h3>
-          <p>{getProgressPercentage()}%</p>
+        <div className="status-item">
+          <span className="status-label">Progress</span>
+          <div className="mini-progress">
+            <div className="mini-progress-bar" style={{ width: `${getProgressPercentage()}%` }}></div>
+            <span className="mini-progress-text">{getProgressPercentage()}%</span>
+          </div>
         </div>
-        
-        <div className="overview-card">
-          <h3>Elapsed Time</h3>
-          <p>{getElapsedTime()}</p>
+        <div className="status-item">
+          <span className="status-label">Time</span>
+          <span className="status-value">{getElapsedTime()}</span>
+        </div>
+        {/* Inline Stage Progress */}
+        <div className="stages-inline">
+          {(() => {
+            const modeStages = {
+              'DISCOVER_ONLY': ['DISCOVER'],
+              'PLAN_ONLY': ['DISCOVER', 'EXPORT', 'TRANSFORM', 'PLAN'],
+              'APPLY': ['DISCOVER', 'EXPORT', 'TRANSFORM', 'PLAN', 'APPLY'],
+              'FULL': ['DISCOVER', 'EXPORT', 'TRANSFORM', 'PLAN', 'APPLY', 'VERIFY'],
+            };
+            const stages = run.components?.length > 0 
+              ? run.components 
+              : (modeStages[run.mode] || modeStages['PLAN_ONLY']);
+            const isRunCompleted = run.status === 'COMPLETED' || run.status === 'success';
+            const currentStage = run.stage?.toUpperCase();
+            const stageIndex = stages.findIndex(s => s.toUpperCase() === currentStage);
+            
+            return stages.map((stage, idx) => {
+              const isCompleted = isRunCompleted || idx < stageIndex;
+              const isCurrent = !isRunCompleted && currentStage === stage.toUpperCase();
+              const isFailed = run.status === 'FAILED' && isCurrent;
+              return (
+                <div key={stage} className={`stage-dot ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''} ${isFailed ? 'failed' : ''}`} title={stage}>
+                  {isCompleted ? '✓' : isFailed ? '✕' : isCurrent ? '●' : '○'}
+                  <span className="stage-name">{stage.slice(0, 3)}</span>
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
 
-      {/* Summary Section - Shows what was discovered and planned */}
+      {/* Summary Section - Shows plan and gaps (inventory is shown separately above) */}
       {summary && run.status === 'COMPLETED' && (
         <div className="summary-section">
-          <h2>📋 Migration Summary</h2>
-          
-          {/* Discovery Results */}
-          {summary.discovery && (
-            <div className="summary-card">
-              <h3>🔍 Discovery Results</h3>
-              <p className="summary-stat">Found <strong>{summary.discovery.total_projects}</strong> project(s)</p>
-              {summary.discovery.projects && summary.discovery.projects.length > 0 && (
-                <div className="discovered-projects">
-                  <table className="mini-table">
-                    <thead>
-                      <tr>
-                        <th>Project</th>
-                        <th>Visibility</th>
-                        <th>Components</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summary.discovery.projects.map((p, i) => (
-                        <tr key={i}>
-                          <td><code>{p.path || p.name}</code></td>
-                          <td><span className={`visibility-badge ${p.visibility}`}>{p.visibility}</span></td>
-                          <td>{p.components?.join(', ') || 'None detected'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {summary.discovery.has_more && (
-                    <p className="more-hint">... and {summary.discovery.total_projects - 10} more projects</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          <h2>📋 Migration Plan Summary</h2>
           
           {/* Plan Summary */}
           {summary.plan && (
             <div className="summary-card">
-              <h3>📝 Migration Plan</h3>
-              <p className="summary-stat">Generated <strong>{summary.plan.total_actions}</strong> action(s)</p>
+              <p className="summary-stat">Generated <strong>{summary.plan.total_actions}</strong> action(s) for migration</p>
               {summary.plan.actions_by_type && Object.keys(summary.plan.actions_by_type).length > 0 && (
-                <div className="action-types">
+                <div className="action-types-grid">
                   {Object.entries(summary.plan.actions_by_type).map(([type, count]) => (
-                    <span key={type} className="action-type-badge">
-                      {type}: {count}
-                    </span>
+                    <div key={type} className="action-type-card">
+                      <span className="action-icon">{getActionIcon(type)}</span>
+                      <span className="action-name">{formatActionType(type)}</span>
+                      <span className="action-count">{count}</span>
+                    </div>
                   ))}
                 </div>
               )}
               {summary.plan.preview && summary.plan.preview.length > 0 && (
                 <div className="plan-preview">
-                  <h4>Preview of Actions:</h4>
-                  <ul>
+                  <h4>Actions Preview:</h4>
+                  <div className="actions-list">
                     {summary.plan.preview.map((action, i) => (
-                      <li key={i}>
-                        <strong>{action.type}</strong>: {action.description || action.target || JSON.stringify(action).slice(0, 100)}
-                      </li>
+                      <div key={i} className="action-item">
+                        <span className="action-type-icon">{getActionIcon(action.type)}</span>
+                        <div className="action-details">
+                          <strong>{formatActionType(action.type)}</strong>
+                          <span className="action-description">{action.description || action.target}</span>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                   {summary.plan.total_actions > 5 && (
                     <p className="more-hint">... and {summary.plan.total_actions - 5} more actions</p>
                   )}
@@ -510,24 +559,15 @@ export const RunDashboardPage = () => {
             </div>
           )}
           
-          {/* Next Steps */}
-          {summary.next_steps && summary.next_steps.length > 0 && (
-            <div className="next-steps-section">
-              <h3>🚀 Next Steps</h3>
-              <div className="next-steps-grid">
-                {summary.next_steps.map((step, i) => (
-                  <button
-                    key={i}
-                    className={`next-step-btn ${step.primary ? 'primary' : ''}`}
-                    onClick={() => handleNextStep(step.action)}
-                  >
-                    <span className="step-label">{step.label}</span>
-                    <span className="step-desc">{step.description}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Quick Actions */}
+          <div className="quick-actions">
+            <button className="quick-action-btn primary" onClick={() => handleNextStep('apply')}>
+              ▶️ Apply Migration
+            </button>
+            <button className="quick-action-btn" onClick={() => handleNextStep('review_plan')}>
+              📄 Review Plan
+            </button>
+          </div>
         </div>
       )}
 
@@ -539,86 +579,6 @@ export const RunDashboardPage = () => {
           onStartFresh={handleStartFresh}
         />
       )}
-
-      <div className="progress-section">
-        <h2>Overall Progress</h2>
-        <div className="progress-bar-container">
-          <div className="progress-bar" style={{ width: `${getProgressPercentage()}%` }}>
-            <span className="progress-text">{getProgressPercentage()}%</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="components-section">
-        <h2>Stages</h2>
-        <div className="components-grid">
-          {(() => {
-            // If no components, create default stages based on mode
-            const modeStages = {
-              'DISCOVER_ONLY': ['DISCOVER'],
-              'PLAN_ONLY': ['DISCOVER', 'EXPORT', 'TRANSFORM', 'PLAN'],
-              'APPLY': ['DISCOVER', 'EXPORT', 'TRANSFORM', 'PLAN', 'APPLY'],
-              'FULL': ['DISCOVER', 'EXPORT', 'TRANSFORM', 'PLAN', 'APPLY', 'VERIFY'],
-            };
-            const stages = run.components?.length > 0 
-              ? run.components 
-              : (modeStages[run.mode] || modeStages['PLAN_ONLY']);
-            
-            // If run is completed, all stages are done
-            const isRunCompleted = run.status === 'COMPLETED' || run.status === 'success';
-            // Find current stage from run.stage
-            const currentStage = run.stage?.toUpperCase();
-            const stageIndex = stages.findIndex(s => s.toUpperCase() === currentStage);
-            
-            return stages.map((component, idx) => {
-              // Check events for this component - handle both event.type and event.payload.type
-              const componentEvents = events.filter(e => {
-                const agentName = e.agent || '';
-                return agentName.toLowerCase().includes(component.toLowerCase()) ||
-                       e.message?.toLowerCase().includes(component.toLowerCase());
-              });
-              
-              let isCompleted = componentEvents.some(e => {
-                const eventType = e.type || (e.payload && e.payload.type);
-                return eventType === 'component_completed';
-              });
-              
-              // If run is completed, mark all stages as completed
-              if (isRunCompleted) {
-                isCompleted = true;
-              } else if (stageIndex >= 0) {
-                // Mark stages before current as completed
-                isCompleted = isCompleted || idx < stageIndex;
-              }
-              
-              const isFailed = componentEvents.some(e => {
-                const eventType = e.type || (e.payload && e.payload.type);
-                return eventType === 'error' || e.level === 'ERROR';
-              }) && (run.status === 'FAILED' && currentStage === component.toUpperCase());
-              
-              const isRunning = !isCompleted && !isFailed && (currentStage === component.toUpperCase());
-              
-              return (
-                <div key={component} className={`component-card ${isCompleted ? 'completed' : ''} ${isFailed ? 'failed' : ''} ${isRunning ? 'running' : ''}`}>
-                  <div className="component-icon">
-                    {isCompleted && '✓'}
-                    {isFailed && '✕'}
-                    {isRunning && '⋯'}
-                    {!isCompleted && !isFailed && !isRunning && '○'}
-                  </div>
-                  <div className="component-name">{component}</div>
-                  <div className="component-status">
-                    {isCompleted && 'Completed'}
-                    {isFailed && 'Failed'}
-                    {isRunning && 'Running'}
-                    {!isCompleted && !isFailed && !isRunning && 'Pending'}
-                  </div>
-                </div>
-              );
-            });
-          })()}
-        </div>
-      </div>
 
       <div className="events-section">
         <h2>Event Log</h2>
